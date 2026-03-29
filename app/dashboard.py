@@ -5,7 +5,25 @@ from sqlalchemy import func
 from models import get_engine, Report, Record
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="DMARClyzer Dashboard", page_icon="🛡️", layout="wide")
+st.set_page_config(
+    page_title="DMARClyzer Dashboard", 
+    page_icon="🛡️", 
+    layout="wide",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': None
+    }
+)
+
+hide_st_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_st_style, unsafe_allow_html=True)
 
 @st.cache_resource
 def get_engine_cached():
