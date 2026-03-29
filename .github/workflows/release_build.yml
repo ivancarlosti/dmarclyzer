@@ -219,6 +219,10 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: 🛠 Set up QEMU
+        if: steps.check_commits.outputs.commit_count != '0' && steps.dockerfile_check.outputs.exists == 'true'
+        uses: docker/setup-qemu-action@v3
+
       - name: 🛠 Set up Docker Buildx
         if: steps.check_commits.outputs.commit_count != '0' && steps.dockerfile_check.outputs.exists == 'true'
         uses: docker/setup-buildx-action@v3
@@ -237,4 +241,5 @@ jobs:
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ghcr.io/${{ github.repository }}:latest
