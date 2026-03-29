@@ -46,7 +46,7 @@ jobs:
           if [ "${{ steps.check_tags_exist.outputs.has_tags }}" = "false" ]; then
             # No tags exist, so we should create first release
             echo "commit_count=1" >> "$GITHUB_OUTPUT"
-            CHANGED_FILES=$(git ls-files | grep -v '^manifest.json$' || true)
+            CHANGED_FILES=$(git ls-files | grep -vE '^(manifest\.json|package\.json|package-lock\.json|\.gitignore|\.dockerignore|CNAME|README\.md|LICENSE|\.github/.*)$' || true)
             if [ -n "$CHANGED_FILES" ]; then
               echo "changed_files<<EOF" >> "$GITHUB_OUTPUT"
               printf '%s\n' "$CHANGED_FILES" >> "$GITHUB_OUTPUT"
@@ -56,7 +56,7 @@ jobs:
             fi
           else
             LATEST_TAG="${{ steps.check_tags_exist.outputs.latest_tag }}"
-            CHANGED_FILES="$(git diff --name-only "${LATEST_TAG}..HEAD" | grep -v '^manifest.json$' || true)"
+            CHANGED_FILES="$(git diff --name-only "${LATEST_TAG}..HEAD" | grep -vE '^(manifest\.json|package\.json|package-lock\.json|\.gitignore|\.dockerignore|CNAME|README\.md|LICENSE|\.github/.*)$' || true)"
             if [ -n "$CHANGED_FILES" ]; then
               echo "commit_count=1" >> "$GITHUB_OUTPUT"
               echo "changed_files<<EOF" >> "$GITHUB_OUTPUT"
@@ -219,7 +219,7 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 🛠 Set up QEMU
+      - name: 🐧 Set up QEMU
         if: steps.check_commits.outputs.commit_count != '0' && steps.dockerfile_check.outputs.exists == 'true'
         uses: docker/setup-qemu-action@v3
 
