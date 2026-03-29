@@ -2,7 +2,7 @@ import xmltodict
 import logging
 from datetime import datetime
 from sqlalchemy.orm import sessionmaker
-from .models import get_engine, init_db, Report, Record, AuthResult
+from models import get_engine, init_db, Report, Record, AuthResult
 
 logger = logging.getLogger(__name__)
 
