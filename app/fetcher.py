@@ -31,7 +31,14 @@ def fetch_dmarc_reports():
         logger.info(f"Connecting to IMAP {server}:{port}...")
         mail = imaplib.IMAP4_SSL(server, port)
         mail.login(user, password)
-        mail.select(folder)
+        status, folder_data = mail.select(folder)
+        if status != 'OK':
+            logger.error(f"Failed to select folder '{folder}'. Does it exist? (Note: Gmail folders are case-sensitive)")
+            mail.logout()
+            return xml_reports
+            
+        total_msgs = folder_data[0].decode() if folder_data and folder_data[0] else "0"
+        logger.info(f"Successfully connected to '{folder}' (Total messages in folder: {total_msgs})")
 
         # Search for unread emails
         status, messages = mail.search(None, 'UNSEEN')
