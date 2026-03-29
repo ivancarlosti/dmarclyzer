@@ -1,0 +1,36 @@
+services:
+  dmarclyzer:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    container_name: dmarclyzer_app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - ../app:/app
+
+  db:
+    image: mariadb:10.11
+    container_name: dmarclyzer_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${DB_NAME:-dmarc}
+      MYSQL_USER: ${DB_USER:-dmarcuser}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-dmarcpass}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data:

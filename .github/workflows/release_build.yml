@@ -1,0 +1,240 @@
+name: Build, Push, Publish
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: '28 5 * * *'
+  workflow_run:
+    workflows: ["Sync Repo"]
+    types:
+      - completed
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: 📥 Checkout code with full history and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if any tags exist
+        id: check_tags_exist
+        run: |
+          git fetch --tags
+          TAG_COUNT=$(git tag | wc -l)
+          if [ "$TAG_COUNT" -eq 0 ]; then
+            echo "has_tags=false" >> "$GITHUB_OUTPUT"
+            echo "latest_tag=v0.0.0" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tags=true" >> "$GITHUB_OUTPUT"
+            LATEST_TAG=$(git describe --tags --abbrev=0)
+            echo "latest_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check if meaningful commits exist since latest tag
+        id: check_commits
+        run: |
+          if [ "${{ steps.check_tags_exist.outputs.has_tags }}" = "false" ]; then
+            # No tags exist, so we should create first release
+            echo "commit_count=1" >> "$GITHUB_OUTPUT"
+            CHANGED_FILES=$(git ls-files | grep -v '^manifest.json$' || true)
+            if [ -n "$CHANGED_FILES" ]; then
+              echo "changed_files<<EOF" >> "$GITHUB_OUTPUT"
+              printf '%s\n' "$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+              echo "EOF" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed_files=Initial release" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            LATEST_TAG="${{ steps.check_tags_exist.outputs.latest_tag }}"
+            CHANGED_FILES="$(git diff --name-only "${LATEST_TAG}..HEAD" | grep -v '^manifest.json$' || true)"
+            if [ -n "$CHANGED_FILES" ]; then
+              echo "commit_count=1" >> "$GITHUB_OUTPUT"
+              echo "changed_files<<EOF" >> "$GITHUB_OUTPUT"
+              printf '%s\n' "$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+              echo "EOF" >> "$GITHUB_OUTPUT"
+            else
+              echo "commit_count=0" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Get latest release tag (from GitHub API)
+        id: get_latest_release
+        run: |
+          LATEST_RELEASE_TAG=$(curl -sL -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" | jq -r .tag_name)
+          if [ -z "$LATEST_RELEASE_TAG" ] || [ "$LATEST_RELEASE_TAG" = "null" ]; then
+            LATEST_RELEASE_TAG="v1.0.0"
+          fi
+          echo "latest_release_tag=$LATEST_RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "latest_release_version=${LATEST_RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # -------------------------------
+      # Sync manifest.json to last release version if behind (only when no meaningful commits)
+      # -------------------------------
+      - name: 🛠 Ensure manifest.json matches latest release version
+        if: steps.check_commits.outputs.commit_count == '0'
+        run: |
+          if [ -f manifest.json ]; then
+            MANIFEST_VERSION=$(jq -r '.version // empty' manifest.json)
+          else
+            MANIFEST_VERSION=""
+          fi
+          LATEST_RELEASE_VERSION="${{ steps.get_latest_release.outputs.latest_release_version }}"
+          PYTHON_CODE="from packaging import version; \
+            print(version.parse('$LATEST_RELEASE_VERSION') > version.parse('$MANIFEST_VERSION') if '$MANIFEST_VERSION' else True)"
+          NEED_UPDATE=$(python3 -c "$PYTHON_CODE")
+          if [ "$NEED_UPDATE" = "True" ]; then
+            echo "Updating manifest.json to version $LATEST_RELEASE_VERSION (sync with release)"
+            jq --arg v "$LATEST_RELEASE_VERSION" '.version = $v' manifest.json > tmp.json && mv tmp.json manifest.json
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add manifest.json
+            git commit -m "Sync manifest.json to release $LATEST_RELEASE_VERSION [🔄]" || echo "Nothing to commit"
+            git push origin main || true
+          else
+            echo "Manifest.json is already up-to-date with the latest release."
+          fi
+
+      # -------------------------------
+      # Continue normal workflow if commits exist
+      # -------------------------------
+      - name: 📃 Get list of changed files (Markdown bullet list)
+        if: steps.check_commits.outputs.commit_count != '0'
+        id: changed_files
+        run: |
+          BULLET_LIST="$(printf '%s\n' "${{ steps.check_commits.outputs.changed_files }}" | sed 's/^/- /')"
+          echo "CHANGED<<EOF" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$BULLET_LIST" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          COUNT="$(printf '%s\n' "${{ steps.check_commits.outputs.changed_files }}" | wc -l)"
+          echo "COUNT=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Get manifest version
+        if: steps.check_commits.outputs.commit_count != '0'
+        id: get_manifest_version
+        run: |
+          if [ -f manifest.json ]; then
+            MANIFEST_VERSION=$(jq -r '.version // empty' manifest.json)
+            if [ -z "$MANIFEST_VERSION" ] || [ "$MANIFEST_VERSION" = "null" ]; then
+              MANIFEST_VERSION="1.0.0"
+            fi
+          else
+            MANIFEST_VERSION="1.0.0"
+          fi
+          echo "manifest_version=$MANIFEST_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Pick base version
+        if: steps.check_commits.outputs.commit_count != '0'
+        id: pick_base_version
+        run: |
+          LATEST_RELEASE="${{ steps.get_latest_release.outputs.latest_release_version }}"
+          MANIFEST="${{ steps.get_manifest_version.outputs.manifest_version }}"
+          BASE_VERSION=$(python3 -c "from packaging import version; \
+            print(str(max(version.parse('$LATEST_RELEASE'), version.parse('$MANIFEST'))))")
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: 🔢 Determine version
+        if: steps.check_commits.outputs.commit_count != '0'
+        id: version
+        run: |
+          BASE_VERSION="${{ steps.pick_base_version.outputs.base_version }}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+          COUNT="${{ steps.changed_files.outputs.COUNT }}"
+          if [ "$COUNT" -ge 5 ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [ "$COUNT" -ge 3 ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          REPO_NAME="$(basename "$GITHUB_REPOSITORY")"
+          ZIP_NAME="${REPO_NAME}-${NEW_VERSION}.zip"
+          echo "VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          echo "REPO_NAME=$REPO_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: 🛠 Update or create manifest.json
+        if: steps.check_commits.outputs.commit_count != '0'
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          AUTHOR="Ivan Carlos"
+          VERSION_FILE="manifest.json"
+          if [ -f "$VERSION_FILE" ]; then
+            jq --arg v "$VERSION" --arg a "$AUTHOR" \
+               '.version = $v | .author = $a' "$VERSION_FILE" > tmp.json && mv tmp.json "$VERSION_FILE"
+          else
+            echo "{ \"version\": \"$VERSION\", \"author\": \"$AUTHOR\" }" > "$VERSION_FILE"
+          fi
+
+      - name: 💾 Commit and push updated manifest.json
+        if: steps.check_commits.outputs.commit_count != '0'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add manifest.json
+          git commit -m "Update manifest version to ${{ steps.version.outputs.VERSION }} [▶️]" || echo "Nothing to commit"
+          git push origin main
+
+      - name: 📦 Create ZIP package (excluding certain files)
+        if: steps.check_commits.outputs.commit_count != '0'
+        run: |
+          ZIP_NAME="${{ steps.version.outputs.ZIP_NAME }}"
+          zip -r "$ZIP_NAME" . -x ".git/*" ".github/*" "docker/*" ".dockerignore" "CNAME" "Dockerfile" "README.md" "LICENSE"
+
+      - name: 🚀 Create GitHub Release
+        if: steps.check_commits.outputs.commit_count != '0'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.version.outputs.VERSION }}"
+          name: "${{ steps.version.outputs.REPO_NAME }} v${{ steps.version.outputs.VERSION }}"
+          body: |
+            ### Changelog
+            Files changed in this release:
+            ${{ steps.changed_files.outputs.CHANGED }}
+          files: ${{ steps.version.outputs.ZIP_NAME }}
+
+      # ----- Docker steps -----
+      - name: 🔍 Check if Dockerfile exists
+        if: steps.check_commits.outputs.commit_count != '0'
+        id: dockerfile_check
+        run: |
+          if [ -f Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 🛠 Set up Docker Buildx
+        if: steps.check_commits.outputs.commit_count != '0' && steps.dockerfile_check.outputs.exists == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Login to GitHub Container Registry
+        if: steps.check_commits.outputs.commit_count != '0' && steps.dockerfile_check.outputs.exists == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐳 Build and Push Docker image
+        if: steps.check_commits.outputs.commit_count != '0' && steps.dockerfile_check.outputs.exists == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest
