@@ -6,12 +6,12 @@ from models import get_engine, Report, Record
 st.set_page_config(page_title="DMARClyzer Dashboard", page_icon="🛡️", layout="wide")
 
 @st.cache_resource
-def get_db_session():
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    return Session()
+def get_engine_cached():
+    return get_engine()
 
-session = get_db_session()
+engine = get_engine_cached()
+Session = sessionmaker(bind=engine)
+session = Session()
 
 st.title("🛡️ DMARClyzer")
 st.markdown("Modern DMARC Aggregate Report Analyzer")
