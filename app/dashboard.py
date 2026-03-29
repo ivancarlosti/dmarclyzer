@@ -46,13 +46,20 @@ endDate = max_dt.date() if max_dt else datetime.today().date()
 dates = st.sidebar.date_input("Date Range", [startDate, endDate], min_value=startDate, max_value=endDate)
 if len(dates) == 2:
     start_filter, end_filter = dates
-else:
+elif len(dates) == 1:
     start_filter = dates[0]
+    end_filter = endDate
+else:
+    start_filter = startDate
     end_filter = endDate
 
 # Multi-selects
 selected_domains = st.sidebar.multiselect("Domains", available_domains, default=available_domains)
 selected_orgs = st.sidebar.multiselect("Reporter Organizations", available_orgs, default=available_orgs)
+
+if not selected_domains or not selected_orgs:
+    st.warning("Please select at least one Domain and one Organization from the sidebar to view data.")
+    st.stop()
 
 st.title("🛡️ DMARC Dashboard")
 st.markdown("Advanced interactive filtering and charting for your DMARC aggregate reports.")
@@ -67,13 +74,12 @@ with Session() as session:
         Record.count,
         Record.disposition,
         Record.dkim,
-        Record.spf
+        Record.spf,
+        Record.reason
     ).join(Record, Report.id == Record.report_id)
     
-    if selected_domains:
-        query = query.filter(Report.domain.in_(selected_domains))
-    if selected_orgs:
-        query = query.filter(Report.org_name.in_(selected_orgs))
+    query = query.filter(Report.domain.in_(selected_domains))
+    query = query.filter(Report.org_name.in_(selected_orgs))
     
     query = query.filter(Report.begin_date >= start_filter, Report.begin_date <= pd.to_datetime(end_filter) + pd.Timedelta(days=1))
     
@@ -96,9 +102,14 @@ st.divider()
 st.subheader("Email Volume over Time")
 df['date'] = pd.to_datetime(df['begin_date']).dt.date
 daily_vol = df.groupby(['date', 'disposition'])['count'].sum().reset_index()
-# Pivot for area chart
+
 vol_pivot = daily_vol.pivot(index='date', columns='disposition', values='count').fillna(0)
-st.area_chart(vol_pivot)
+
+# If only one day of data exists, an Area chart will fail to render lines. We default to a Bar chart in that state.
+if len(vol_pivot) < 2:
+    st.bar_chart(vol_pivot)
+else:
+    st.area_chart(vol_pivot)
 
 colA, colB = st.columns(2)
 
@@ -114,6 +125,15 @@ with colB:
     if not spf_counts.empty:
         st.bar_chart(spf_counts.set_index('spf'))
 
-st.subheader("Top Source IPs Processing Breakdown")
-ip_stats = df.groupby(['source_ip', 'domain', 'org_name', 'disposition'])['count'].sum().reset_index().sort_values(by='count', ascending=False)
+st.subheader("Failure Analysis & Top Source IPs")
+failures_df = df[df['disposition'] != 'none']
+if not failures_df.empty:
+    st.markdown("**Detailed Failure Breakdown**")
+    fail_stats = failures_df.groupby(['source_ip', 'domain', 'reason', 'dkim', 'spf'])['count'].sum().reset_index().sort_values(by='count', ascending=False)
+    st.dataframe(fail_stats, use_container_width=True)
+else:
+    st.success("No DMARC failures detected for the currently filtered domains!")
+
+st.markdown("**All Source IPs Summary**")
+ip_stats = df.groupby(['source_ip', 'domain', 'org_name', 'disposition'])['count'].sum().reset_index().sort_values(by='count', ascending=False).head(500)
 st.dataframe(ip_stats, use_container_width=True)
