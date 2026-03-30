@@ -36,7 +36,7 @@ Replaces old web stacks with a unified, robust Python + Streamlit dashboard and 
 2. **Start the Application:**
    Boot up the Python parsing daemon, Streamlit dashboard, and MariaDB container:
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 3. **Access the Dashboard:**
