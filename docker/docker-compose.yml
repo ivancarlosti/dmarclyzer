@@ -10,18 +10,7 @@ services:
         condition: service_healthy
     env_file:
       - .env
-    environment:
-      AUTH_METHOD: ${AUTH_METHOD:-none}
-      ACCOUNT_LOGIN: ${ACCOUNT_LOGIN}
-      ACCOUNT_PASSWORD: ${ACCOUNT_PASSWORD}
-      RECAPTCHA_CLIENTID: ${RECAPTCHA_CLIENTID}
-      RECAPTCHA_CLIENTSECRET: ${RECAPTCHA_CLIENTSECRET}
-      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL}
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
-      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
-      KEYCLOAK_REDIRECT_URI: ${KEYCLOAK_REDIRECT_URI}
-      KEYCLOAK_EMAIL_ACCOUNT: ${KEYCLOAK_EMAIL_ACCOUNT}
+
   db:
     image: mariadb:10.11
     container_name: dmarclyzer_db
@@ -34,7 +23,7 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
       interval: 10s
       timeout: 5s
       retries: 5
