@@ -180,7 +180,7 @@ with Session() as session:
     display_df = reports_df[['Start Date', 'End Date', 'Domain', 'Reporting Organization', 'Report ID', 'Messages']]
     
     # Render Master List natively requesting selection state
-    event = st.dataframe(display_df, on_select="rerun", selection_mode="single-row", use_container_width=True, hide_index=True)
+    event = st.dataframe(display_df, on_select="rerun", selection_mode="single-row", width="stretch", hide_index=True)
     
     selected_rows = event.selection.rows
     if not selected_rows:
@@ -272,7 +272,7 @@ with Session() as session:
 
             aggregate_cols = ['source_ip', 'host_name', 'count', 'disposition', 'reason', 'dkim_domain', 'dkim_auth', 'spf_domain', 'spf_auth', 'dkim', 'spf', 'dmarc']
             ip_stats = detail_df.groupby(['source_ip', 'host_name', 'disposition', 'reason', 'dkim_domain', 'dkim_auth', 'spf_domain', 'spf_auth', 'dkim', 'spf', 'dmarc'], dropna=False)['count'].sum().reset_index().sort_values(by='count', ascending=False)
-            st.dataframe(ip_stats[aggregate_cols], use_container_width=True, column_config=column_config, hide_index=True)
+            st.dataframe(ip_stats[aggregate_cols], width="stretch", column_config=column_config, hide_index=True)
             
             # Simple UI HTML Export Button placeholder logic for isolated viewing
             # st.download_button("Export Detailed Selection", data=ip_stats[aggregate_cols].to_csv(index=False), file_name=f"dmarc_export_{selected_report['Report ID']}.csv", mime="text/csv")

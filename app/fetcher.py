@@ -50,8 +50,8 @@ def fetch_dmarc_reports():
         if not msg_uids:
             logger.info("No unread DMARC emails found.")
 
+        # Flag to track if we need to expunge any deleted items
         msg_uids_to_expunge = False
-        dest_folder = None
         
         for msg_uid in msg_uids:
             res, msg_data = mail.uid('FETCH', msg_uid, '(RFC822)')
@@ -106,33 +106,31 @@ def fetch_dmarc_reports():
 
             # Move the message if a destination folder is defined
             if dest_folder:
-                # IMAP names gracefully quoted
                 dest_str = f'"{dest_folder}"' if ' ' in dest_folder else dest_folder
                 try:
-                    # Attempt native UID MOVE (RFC 6851) which Gmail explicitly requires to cleanly strip labels
-                    res, _ = mail.uid('MOVE', msg_uid, dest_str)
-                    if res != 'OK':
-                        # Try to create folder if it does not exist
+                    # Attempt to ensure the destination folder exists
+                    try:
                         mail.create(dest_str)
-                        res, _ = mail.uid('MOVE', msg_uid, dest_str)
+                    except Exception:
+                        pass # Often raises an exception if the folder already exists
+                        
+                    # 1. Copy to the new folder/label
+                    res, _ = mail.uid('COPY', msg_uid, dest_str)
                     
-                    if res != 'OK':
-                        # Graceful Fallback for archaic IMAP servers missing the MOVE extension
-                        res, _ = mail.uid('COPY', msg_uid, dest_str)
-                        if res == 'OK':
-                            mail.uid('STORE', msg_uid, '+FLAGS', '(\\Deleted)')
-                            msg_uids_to_expunge = True
-                            logger.info(f"Moved message {msg_id_str} to {dest_folder} (using COPY+FLAGS fallback)")
-                        else:
-                            logger.error(f"Failed to copy message {msg_id_str} to {dest_folder}")
+                    if res == 'OK':
+                        # 2. Add the deleted flag to the original message
+                        mail.uid('STORE', msg_uid, '+FLAGS', '(\\Deleted)')
+                        msg_uids_to_expunge = True
+                        logger.info(f"Successfully copied message {msg_id_str} to {dest_folder} and marked original for deletion")
                     else:
-                        logger.info(f"Moved message {msg_id_str} to {dest_folder} natively via UID MOVE")
+                        logger.error(f"Failed to copy message {msg_id_str} to {dest_folder}")
                 except Exception as e:
-                    logger.error(f"Error moving message: {e}")
+                    logger.error(f"Error moving message {msg_id_str} to {dest_folder}: {e}")
 
-        # Delete the moved messages if we used the fallback
-        if dest_folder and msg_uids_to_expunge:
+        # Delete the moved messages from the original folder
+        if msg_uids_to_expunge:
             mail.expunge()
+            logger.info("Expunged moved messages from original folder.")
 
         mail.close()
         mail.logout()
