@@ -47,6 +47,9 @@ Replaces old web stacks with a unified, robust Python + Streamlit dashboard and 
 
 <img width="1916" height="891" alt="demo" src="https://github.com/user-attachments/assets/d69b4b84-785b-4802-beee-e5dc77876bf0" />
 
+<img width="1616" height="742" alt="image" src="https://github.com/user-attachments/assets/1694b31f-39b0-4a5d-b426-caba35988eec" />
+
+
 ## Reverse Proxy Options
 This application natively supports being securely routed behind a reverse proxy like Nginx or Traefik.  
 To set it up:
