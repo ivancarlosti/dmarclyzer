@@ -45,8 +45,10 @@ Replaces old web stacks with a unified, robust Python + Streamlit dashboard and 
 
 ## Sample
 
+Main dashboard
 <img width="1916" height="891" alt="demo" src="https://github.com/user-attachments/assets/d69b4b84-785b-4802-beee-e5dc77876bf0" />
 
+Report selection for details
 <img width="1616" height="742" alt="image" src="https://github.com/user-attachments/assets/1694b31f-39b0-4a5d-b426-caba35988eec" />
 
 
