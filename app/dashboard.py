@@ -21,6 +21,20 @@ hide_st_style = """
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    /* Aggressively reduce main container padded whitespace */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        padding-bottom: 2rem !important;
+    }
+    
+    /* Reduce sidebar whitespace */
+    section[data-testid="stSidebar"] .css-ng1t4o, 
+    section[data-testid="stSidebar"] .css-1d391kg {
+        padding-top: 2rem !important;
+    }
     </style>
 """
 st.markdown(hide_st_style, unsafe_allow_html=True)
