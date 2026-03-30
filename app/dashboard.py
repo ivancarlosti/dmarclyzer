@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func
-from models import get_engine, Report, Record
+from models import get_engine, Report, Record, AuthResult
 from datetime import datetime, timedelta
 
 st.set_page_config(
@@ -85,10 +85,12 @@ st.markdown("Advanced interactive filtering and charting for your DMARC aggregat
 # Query data based on filters
 with Session() as session:
     query = session.query(
+        Record.id.label('record_id'),
         Report.domain,
         Report.org_name,
         Report.begin_date,
         Record.source_ip,
+        Record.host_name,
         Record.count,
         Record.disposition,
         Record.dkim,
@@ -102,6 +104,49 @@ with Session() as session:
     query = query.filter(Report.begin_date >= start_filter, Report.begin_date <= pd.to_datetime(end_filter) + pd.Timedelta(days=1))
     
     df = pd.read_sql(query.statement, session.bind)
+
+    if not df.empty:
+        record_ids = df['record_id'].unique().tolist()
+        auth_query = session.query(
+            AuthResult.record_id, 
+            AuthResult.type, 
+            AuthResult.domain, 
+            AuthResult.result
+        ).filter(AuthResult.record_id.in_(record_ids))
+        
+        auth_df = pd.read_sql(auth_query.statement, session.bind)
+        
+        if not auth_df.empty:
+            # Process DKIM
+            dkim_auths = auth_df[auth_df['type'] == 'dkim']
+            if not dkim_auths.empty:
+                dkim_grouped = dkim_auths.groupby('record_id').agg({
+                    'domain': lambda x: ', '.join([str(d) for d in x if pd.notna(d)]),
+                    'result': lambda x: ', '.join([str(r) for r in x if pd.notna(r)])
+                }).reset_index().rename(columns={'domain': 'dkim_domain', 'result': 'dkim_auth'})
+                df = df.merge(dkim_grouped, on='record_id', how='left')
+            else:
+                df['dkim_domain'] = None
+                df['dkim_auth'] = None
+
+            # Process SPF
+            spf_auths = auth_df[auth_df['type'] == 'spf']
+            if not spf_auths.empty:
+                spf_grouped = spf_auths.groupby('record_id').agg({
+                    'domain': lambda x: ', '.join([str(d) for d in x if pd.notna(d)]),
+                    'result': lambda x: ', '.join([str(r) for r in x if pd.notna(r)])
+                }).reset_index().rename(columns={'domain': 'spf_domain', 'result': 'spf_auth'})
+                df = df.merge(spf_grouped, on='record_id', how='left')
+            else:
+                df['spf_domain'] = None
+                df['spf_auth'] = None
+        else:
+            df['dkim_domain'] = None
+            df['dkim_auth'] = None
+            df['spf_domain'] = None
+            df['spf_auth'] = None
+            
+        df['dmarc'] = df.apply(lambda row: 'pass' if row['disposition'] == 'none' else 'fail', axis=1)
 
 if df.empty:
     st.warning("No records match the current filters.")
@@ -143,15 +188,24 @@ with colB:
     if not spf_counts.empty:
         st.bar_chart(spf_counts.set_index('spf'))
 
-st.subheader("Failure Analysis & Top Source IPs")
-failures_df = df[df['disposition'] != 'none']
-if not failures_df.empty:
-    st.markdown("**Detailed Failure Breakdown**")
-    fail_stats = failures_df.groupby(['source_ip', 'domain', 'reason', 'dkim', 'spf'])['count'].sum().reset_index().sort_values(by='count', ascending=False)
-    st.dataframe(fail_stats, use_container_width=True)
-else:
-    st.success("No DMARC failures detected for the currently filtered domains!")
+st.subheader("Comprehensive Inspection Table")
+st.markdown("Detailed tabular breakdown featuring reverse DNS resolving. Hover your mouse horizontally across any column header to view an explicit explanation popup!")
 
-st.markdown("**All Source IPs Summary**")
-ip_stats = df.groupby(['source_ip', 'domain', 'org_name', 'disposition'])['count'].sum().reset_index().sort_values(by='count', ascending=False).head(500)
-st.dataframe(ip_stats, use_container_width=True)
+column_config = {
+    "source_ip": st.column_config.TextColumn("IP", help="The source IP address of the email sender originating the message"),
+    "host_name": st.column_config.TextColumn("Host Name", help="The reverse DNS resolved hostname of the IP address (calculated at parsing time)"),
+    "count": st.column_config.NumberColumn("Message Count", help="The sum of messages sent from this IP matching these parameters"),
+    "disposition": st.column_config.TextColumn("Disposition", help="The DMARC policy action applied by the receiver: none (pass), quarantine, or reject"),
+    "reason": st.column_config.TextColumn("Reason", help="Policy override reasons applied by the receiver, if any (e.g., forwarded, local_policy)"),
+    "dkim_domain": st.column_config.TextColumn("DKIM Domain", help="The explicit domain securely embedded in the DKIM cryptographic signature header"),
+    "dkim_auth": st.column_config.TextColumn("DKIM Auth", help="The raw result of validating the DKIM cryptographic signature (pass/fail)"),
+    "spf_domain": st.column_config.TextColumn("SPF Domain", help="The envelope-from (Return-Path) domain evaluated for SPF routing checks"),
+    "spf_auth": st.column_config.TextColumn("SPF Auth", help="The raw result of the SPF validation querying DNS for permitted ranges (pass/fail/softfail)"),
+    "dkim": st.column_config.TextColumn("DKIM Align", help="Alignment: Did the passing DKIM Domain properly match the 'From' header domain?"),
+    "spf": st.column_config.TextColumn("SPF Align", help="Alignment: Did the passing SPF Domain properly match the 'From' header domain?"),
+    "dmarc": st.column_config.TextColumn("DMARC", help="Derived Overall DMARC Pass/Fail. To pass DMARC, a message MUST pass EITHER DKIM Alignment OR SPF Alignment.", width="small")
+}
+
+aggregate_cols = ['source_ip', 'host_name', 'count', 'disposition', 'reason', 'dkim_domain', 'dkim_auth', 'spf_domain', 'spf_auth', 'dkim', 'spf', 'dmarc']
+ip_stats = df.groupby(['source_ip', 'host_name', 'disposition', 'reason', 'dkim_domain', 'dkim_auth', 'spf_domain', 'spf_auth', 'dkim', 'spf', 'dmarc'], dropna=False)['count'].sum().reset_index().sort_values(by='count', ascending=False)
+st.dataframe(ip_stats[aggregate_cols], use_container_width=True, column_config=column_config, hide_index=True)

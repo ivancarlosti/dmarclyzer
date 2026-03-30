@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from sqlalchemy.orm import sessionmaker
 from models import get_engine, init_db, Report, Record, AuthResult
+import socket
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +79,21 @@ def parse_dmarc_xml(xml_content):
             identifiers = prec.get('identifiers', {})
             header_from = identifiers.get('header_from')
 
+            # Fetch reverse DNS natively avoiding timeout stalls
+            host_name = None
+            if source_ip:
+                try:
+                    socket.setdefaulttimeout(1.0)
+                    host_name_tuple = socket.gethostbyaddr(source_ip)
+                    if host_name_tuple:
+                        host_name = host_name_tuple[0]
+                except Exception:
+                    host_name = None
+
             record = Record(
                 report_id=report.id,
                 source_ip=source_ip,
+                host_name=host_name,
                 count=count,
                 disposition=disposition,
                 dkim=dkim_eval,

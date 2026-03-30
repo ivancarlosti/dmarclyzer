@@ -24,6 +24,7 @@ class Record(Base):
     id = Column(Integer, primary_key=True)
     report_id = Column(Integer, ForeignKey('reports.id'))
     source_ip = Column(String(50))
+    host_name = Column(String(255))
     count = Column(Integer)
     disposition = Column(String(20))
     dkim = Column(String(20))
@@ -51,6 +52,15 @@ def get_engine():
     engine = create_engine(database_url, echo=False)
     return engine
 
+from sqlalchemy import text
+
 def init_db():
     engine = get_engine()
     Base.metadata.create_all(engine)
+    
+    # Graceful migration for existing production databases mapping old SQLite sets to standard MariaDB schemas
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS host_name VARCHAR(255)"))
+        except Exception:
+            pass

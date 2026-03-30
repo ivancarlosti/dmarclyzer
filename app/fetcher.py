@@ -111,7 +111,7 @@ def fetch_dmarc_reports():
                         res, _ = mail.copy(msg_id, dest_folder)
                     
                     if res == 'OK':
-                        mail.store(msg_id, '+FLAGS', '\\Deleted')
+                        mail.store(msg_id, '+FLAGS', '(\\Deleted)')
                         logger.info(f"Moved message {msg_id_str} to {dest_folder}")
                     else:
                         logger.error(f"Failed to move message {msg_id_str} to {dest_folder}")
