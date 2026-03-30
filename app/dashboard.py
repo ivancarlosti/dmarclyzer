@@ -81,12 +81,9 @@ if default_start < min_allowed:
 dates = st.sidebar.date_input("Date Range", [default_start, max_allowed], min_value=min_allowed, max_value=max_allowed)
 if len(dates) == 2:
     start_filter, end_filter = dates
-elif len(dates) == 1:
-    start_filter = dates[0]
-    end_filter = endDate
 else:
-    start_filter = startDate
-    end_filter = endDate
+    st.warning("Please select both a start and end date from the sidebar Date Range.")
+    st.stop()
 
 # Multi-selects
 selected_domains_all = st.sidebar.checkbox("Select All Domains", value=True)
