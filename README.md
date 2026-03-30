@@ -43,6 +43,10 @@ Replaces old web stacks with a unified, robust Python + Streamlit dashboard and 
 3. **Access the Dashboard:**
    Navigate your web browser to `http://localhost:8080` (or whichever `PORT` you configured in your `.env.local`).
 
+## Sample
+
+<img width="1916" height="891" alt="demo" src="https://github.com/user-attachments/assets/d69b4b84-785b-4802-beee-e5dc77876bf0" />
+
 ## Reverse Proxy Options
 This application natively supports being securely routed behind a reverse proxy like Nginx or Traefik.  
 To set it up:
