@@ -3,6 +3,10 @@
 🛡️ **Modern DMARC Aggregate Report Analyzer**
 Replaces old web stacks with a unified, robust Python + Streamlit dashboard and a MariaDB backend.
 
+<!-- buttons -->
+
+<!-- endbuttons -->
+
 ## Features
 - **Automated IMAP Polling**: Continuously fetches and extracts `.zip`, `.gz`, and `.xml` DMARC aggregate reports from your inbox.
 - **Robust Parsing**: Thoroughly processes aggregate data including IP disposition, DKIM, and SPF validation metrics.
@@ -36,3 +40,5 @@ To set it up:
 ---
 
 *(Single Sign-On (SSO) Support is planned for future releases.)*
+
+<!-- footer -->
