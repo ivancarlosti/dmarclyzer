@@ -20,20 +20,19 @@ hide_st_style = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
     
     /* Aggressively reduce main container padded whitespace */
     .block-container {
-        padding-top: 2rem !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
-        padding-bottom: 2rem !important;
+        padding-top: 1rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        padding-bottom: 1rem !important;
     }
     
     /* Reduce sidebar whitespace */
     section[data-testid="stSidebar"] div.css-ng1t4o, 
     section[data-testid="stSidebar"] div.css-1d391kg {
-        padding-top: 2rem !important;
+        padding-top: 1rem !important;
     }
     </style>
 """
