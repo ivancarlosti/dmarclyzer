@@ -51,6 +51,7 @@ def fetch_dmarc_reports():
             logger.info("No unread DMARC emails found.")
 
         msg_uids_to_expunge = False
+        dest_folder = None
         
         for msg_uid in msg_uids:
             res, msg_data = mail.uid('FETCH', msg_uid, '(RFC822)')
