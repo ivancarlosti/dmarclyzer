@@ -72,8 +72,19 @@ else:
     end_filter = endDate
 
 # Multi-selects
-selected_domains = st.sidebar.multiselect("Domains", available_domains, default=available_domains)
-selected_orgs = st.sidebar.multiselect("Reporter Organizations", available_orgs, default=available_orgs)
+selected_domains_all = st.sidebar.checkbox("Select All Domains", value=True)
+selected_domains = st.sidebar.multiselect(
+    "Domains", 
+    available_domains, 
+    default=available_domains if selected_domains_all else []
+)
+
+selected_orgs_all = st.sidebar.checkbox("Select All Reporter Organizations", value=True)
+selected_orgs = st.sidebar.multiselect(
+    "Reporter Organizations", 
+    available_orgs, 
+    default=available_orgs if selected_orgs_all else []
+)
 
 if not selected_domains or not selected_orgs:
     st.warning("Please select at least one Domain and one Organization from the sidebar to view data.")
