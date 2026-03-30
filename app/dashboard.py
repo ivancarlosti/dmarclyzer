@@ -72,10 +72,14 @@ st.sidebar.header("Filter Reports")
 min_dt, max_dt, available_domains, available_orgs = fetch_data()
 
 # Dates
-startDate = min_dt.date() if min_dt else datetime.today().date() - timedelta(days=30)
-endDate = max_dt.date() if max_dt else datetime.today().date()
+max_allowed = max_dt.date() if max_dt else datetime.today().date()
+min_allowed = min_dt.date() if min_dt else datetime.today().date() - timedelta(days=30)
 
-dates = st.sidebar.date_input("Date Range", [startDate, endDate], min_value=startDate, max_value=endDate)
+default_start = max_allowed - timedelta(days=7)
+if default_start < min_allowed:
+    default_start = min_allowed
+
+dates = st.sidebar.date_input("Date Range", [default_start, max_allowed], min_value=min_allowed, max_value=max_allowed)
 if len(dates) == 2:
     start_filter, end_filter = dates
 elif len(dates) == 1:
@@ -252,18 +256,18 @@ with Session() as session:
             detail_df['dmarc'] = detail_df.apply(lambda row: 'pass' if row['disposition'] == 'none' else 'fail', axis=1)
 
             column_config = {
-                "source_ip": st.column_config.TextColumn("IP", help="The source IP address of the email sender originating the message", width="medium"),
-                "host_name": st.column_config.TextColumn("Host Name", help="The reverse DNS resolved hostname of the IP address", width="large"),
-                "count": st.column_config.NumberColumn("Message Count", help="The sum of messages sent from this IP", width="small"),
-                "disposition": st.column_config.TextColumn("Disposition", help="The DMARC policy action applied by the receiver: none (pass), quarantine, or reject", width="small"),
-                "reason": st.column_config.TextColumn("Reason", help="Policy override reasons applied by the receiver", width="medium"),
-                "dkim_domain": st.column_config.TextColumn("DKIM Domain", help="The explicit domain securely embedded in the DKIM cryptographic signature header", width="medium"),
-                "dkim_auth": st.column_config.TextColumn("DKIM Auth", help="The raw result of validating the DKIM cryptographic signature", width="small"),
-                "spf_domain": st.column_config.TextColumn("SPF Domain", help="The envelope-from (Return-Path) domain evaluated for SPF routing checks", width="medium"),
-                "spf_auth": st.column_config.TextColumn("SPF Auth", help="The raw result of the SPF validation querying DNS for permitted ranges", width="small"),
-                "dkim": st.column_config.TextColumn("DKIM Align", help="Alignment: Did the passing DKIM Domain properly match the 'From' header domain?", width="small"),
-                "spf": st.column_config.TextColumn("SPF Align", help="Alignment: Did the passing SPF Domain properly match the 'From' header domain?", width="small"),
-                "dmarc": st.column_config.TextColumn("DMARC", help="Derived Overall DMARC Pass/Fail", width="small")
+                "source_ip": st.column_config.TextColumn("IP", help="The source IP address of the email sender originating the message"),
+                "host_name": st.column_config.TextColumn("Host Name", help="The reverse DNS resolved hostname of the IP address"),
+                "count": st.column_config.NumberColumn("Message Count", help="The sum of messages sent from this IP"),
+                "disposition": st.column_config.TextColumn("Disposition", help="The DMARC policy action applied by the receiver: none (pass), quarantine, or reject"),
+                "reason": st.column_config.TextColumn("Reason", help="Policy override reasons applied by the receiver"),
+                "dkim_domain": st.column_config.TextColumn("DKIM Domain", help="The explicit domain securely embedded in the DKIM cryptographic signature header"),
+                "dkim_auth": st.column_config.TextColumn("DKIM Auth", help="The raw result of validating the DKIM cryptographic signature"),
+                "spf_domain": st.column_config.TextColumn("SPF Domain", help="The envelope-from (Return-Path) domain evaluated for SPF routing checks"),
+                "spf_auth": st.column_config.TextColumn("SPF Auth", help="The raw result of the SPF validation querying DNS for permitted ranges"),
+                "dkim": st.column_config.TextColumn("DKIM Align", help="Alignment: Did the passing DKIM Domain properly match the 'From' header domain?"),
+                "spf": st.column_config.TextColumn("SPF Align", help="Alignment: Did the passing SPF Domain properly match the 'From' header domain?"),
+                "dmarc": st.column_config.TextColumn("DMARC", help="Derived Overall DMARC Pass/Fail")
             }
 
             aggregate_cols = ['source_ip', 'host_name', 'count', 'disposition', 'reason', 'dkim_domain', 'dkim_auth', 'spf_domain', 'spf_auth', 'dkim', 'spf', 'dmarc']
