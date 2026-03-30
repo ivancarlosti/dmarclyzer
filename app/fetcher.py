@@ -40,22 +40,24 @@ def fetch_dmarc_reports():
         total_msgs = folder_data[0].decode() if folder_data and folder_data[0] else "0"
         logger.info(f"Successfully connected to '{folder}' (Total messages in folder: {total_msgs})")
 
-        # Search for unread emails
-        status, messages = mail.search(None, 'UNSEEN')
+        # Search for unread emails using UID
+        status, messages = mail.uid('SEARCH', None, 'UNSEEN')
         if status != 'OK':
             logger.error("Failed to search emails.")
             return xml_reports
 
-        msg_ids = messages[0].split()
-        if not msg_ids:
+        msg_uids = messages[0].split()
+        if not msg_uids:
             logger.info("No unread DMARC emails found.")
 
-        for msg_id in msg_ids:
-            res, msg_data = mail.fetch(msg_id, '(RFC822)')
+        msg_uids_to_expunge = False
+        
+        for msg_uid in msg_uids:
+            res, msg_data = mail.uid('FETCH', msg_uid, '(RFC822)')
             if res != 'OK':
                 continue
             
-            msg_id_str = msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id)
+            msg_id_str = msg_uid.decode() if isinstance(msg_uid, bytes) else str(msg_uid)
             logger.info(f"Processing message ID: {msg_id_str}")
             found_xml_in_msg = False
             for response_part in msg_data:
@@ -103,23 +105,32 @@ def fetch_dmarc_reports():
 
             # Move the message if a destination folder is defined
             if dest_folder:
+                # IMAP names gracefully quoted
+                dest_str = f'"{dest_folder}"' if ' ' in dest_folder else dest_folder
                 try:
-                    res, _ = mail.copy(msg_id, dest_folder)
+                    # Attempt native UID MOVE (RFC 6851) which Gmail explicitly requires to cleanly strip labels
+                    res, _ = mail.uid('MOVE', msg_uid, dest_str)
                     if res != 'OK':
                         # Try to create folder if it does not exist
-                        mail.create(dest_folder)
-                        res, _ = mail.copy(msg_id, dest_folder)
+                        mail.create(dest_str)
+                        res, _ = mail.uid('MOVE', msg_uid, dest_str)
                     
-                    if res == 'OK':
-                        mail.store(msg_id, '+FLAGS', '(\\Deleted)')
-                        logger.info(f"Moved message {msg_id_str} to {dest_folder}")
+                    if res != 'OK':
+                        # Graceful Fallback for archaic IMAP servers missing the MOVE extension
+                        res, _ = mail.uid('COPY', msg_uid, dest_str)
+                        if res == 'OK':
+                            mail.uid('STORE', msg_uid, '+FLAGS', '(\\Deleted)')
+                            msg_uids_to_expunge = True
+                            logger.info(f"Moved message {msg_id_str} to {dest_folder} (using COPY+FLAGS fallback)")
+                        else:
+                            logger.error(f"Failed to copy message {msg_id_str} to {dest_folder}")
                     else:
-                        logger.error(f"Failed to move message {msg_id_str} to {dest_folder}")
+                        logger.info(f"Moved message {msg_id_str} to {dest_folder} natively via UID MOVE")
                 except Exception as e:
                     logger.error(f"Error moving message: {e}")
 
-        # Delete the moved messages
-        if move_folder or move_folder_err:
+        # Delete the moved messages if we used the fallback
+        if dest_folder and msg_uids_to_expunge:
             mail.expunge()
 
         mail.close()
