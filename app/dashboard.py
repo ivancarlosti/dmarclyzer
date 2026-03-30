@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func
 from models import get_engine, Report, Record, AuthResult
 from datetime import datetime, timedelta
+from auth import require_auth
 
 st.set_page_config(
     page_title="DMARClyzer Dashboard", 
@@ -15,6 +16,9 @@ st.set_page_config(
         'About': None
     }
 )
+
+if not require_auth():
+    st.stop()
 
 hide_st_style = """
     <style>

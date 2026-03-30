@@ -4,3 +4,5 @@ SQLAlchemy==2.0.29
 PyMySQL==1.1.0
 python-dotenv==1.0.1
 xmltodict==0.13.0
+authlib==1.3.0
+requests==2.31.0
