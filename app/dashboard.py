@@ -68,7 +68,25 @@ except Exception:
 if not has_data:
     st.title("🛡️ DMARClyzer")
     st.info("No DMARC reports found yet. The fetcher daemon might still be processing, or your configured IMAP inbox hasn't received any new valid Aggregate XML attachments.")
+    
+    if "initial_refresh_count" not in st.session_state:
+        st.session_state["initial_refresh_count"] = 0
+        
+    if st.session_state["initial_refresh_count"] < 3:
+        import time
+        st.session_state["initial_refresh_count"] += 1
+        with st.spinner("Waiting for background processing... Auto-refreshing..."):
+            time.sleep(3)
+        st.rerun()
+    else:
+        if st.button("Refresh Dashboard", type="primary"):
+            st.session_state["initial_refresh_count"] = 0
+            st.rerun()
+            
     st.stop()
+else:
+    if "initial_refresh_count" in st.session_state:
+        del st.session_state["initial_refresh_count"]
 
 # Sidebar Filters
 st.sidebar.header("Filter Reports")
