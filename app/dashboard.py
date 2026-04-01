@@ -27,7 +27,7 @@ hide_st_style = """
     
     /* Aggressively reduce main container padded whitespace */
     .block-container {
-        padding-top: 1rem !important;
+        padding-top: 2.5rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
         padding-bottom: 1rem !important;
@@ -36,7 +36,7 @@ hide_st_style = """
     /* Reduce sidebar whitespace */
     section[data-testid="stSidebar"] div.css-ng1t4o, 
     section[data-testid="stSidebar"] div.css-1d391kg {
-        padding-top: 1rem !important;
+        padding-top: 2rem !important;
     }
     </style>
 """
