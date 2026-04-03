@@ -171,7 +171,7 @@ with Session() as session:
 
     # 2. Master Reports List Query
     st.subheader("Available DMARC Reports")
-    st.markdown("Select an individual report row from below to instantly expand the deep IP-level processing inspection array exactly like the legacy PHP application!")
+    st.markdown("Select an individual report row from below to instantly expand the deep IP-level processing inspection array")
 
     report_query = session.query(
         Report.begin_date.label('Start Date'),
@@ -209,7 +209,7 @@ with Session() as session:
         selected_index = selected_rows[0]
         selected_report = reports_df.iloc[selected_index]
         
-        # Policy Header identical to legacy
+        # Policy Header
         st.markdown(f"**Report from {selected_report['Reporting Organization']} for {selected_report['Domain']}**")
         st.markdown(f"{selected_report['Start Date']} to {selected_report['End Date']}")
         st.markdown(f"**Policies: adkim={selected_report['adkim']}, aspf={selected_report['aspf']}, p={selected_report['p']}, sp={selected_report['sp']}, pct={selected_report['pct']}**")
