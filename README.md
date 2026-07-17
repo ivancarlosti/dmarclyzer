@@ -372,7 +372,7 @@ server {
 
 ## Sample Screenshots
 
-<img width="1262" height="1030" alt="image" src="https://github.com/user-attachments/assets/c0cb1374-e844-4b6b-b59c-54af38062665" />
+<img width="1234" height="887" alt="image" src="https://github.com/user-attachments/assets/8840ea10-0696-4952-a397-7a7e66908d70" />
 <img width="1265" height="763" alt="image" src="https://github.com/user-attachments/assets/5c6c44c2-546c-4757-ac09-b1a7a2c5800a" />
 *Overview tab — DMARC Compliance Overview, Email Volume Over Time, Disposition Distribution, DKIM vs SPF Alignment, DMARC Policy Distribution*
 
