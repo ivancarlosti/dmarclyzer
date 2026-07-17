@@ -17,6 +17,7 @@ from dashboard.queries import fetch_filter_bounds, _get_engine_cached
 from dashboard.overview import render_overview
 from dashboard.sources import render_sources
 from dashboard.domains import render_domains
+from dashboard.reports import render_reports
 
 
 def main():
@@ -58,7 +59,7 @@ def main():
     _render_sidebar()
 
     # ── Tab Navigation ──
-    tab1, tab2, tab3 = st.tabs(["📊 Overview", "🔍 Sources", "🌐 Domains"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🔍 Sources", "🌐 Domains", "📋 Reports"])
 
     filters = _get_filters_from_session()
 
@@ -70,6 +71,9 @@ def main():
 
     with tab3:
         render_domains(**filters)
+
+    with tab4:
+        render_reports(**filters)
 
 
 def _render_empty_state():

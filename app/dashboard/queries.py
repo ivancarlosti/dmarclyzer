@@ -357,3 +357,143 @@ def fetch_policy_timeline(start_date, end_date, domains, orgs):
         if not df.empty:
             df["date"] = pd.to_datetime(df["begin_date"]).dt.date
         return df
+
+
+# ═══════════════════════════════════════════════════════════
+# Reports Tab Queries
+# ═══════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=300, show_spinner="Loading reports...")
+def fetch_report_list(start_date, end_date, domains, orgs):
+    """Return list of individual DMARC reports with aggregate message count."""
+    engine = _get_engine_cached()
+    Session = sessionmaker(bind=engine)
+    with Session() as session:
+        q = (
+            session.query(
+                Report.begin_date,
+                Report.end_date,
+                Report.domain,
+                Report.org_name,
+                Report.report_id,
+                func.sum(Record.count).label("messages"),
+                Report.id.label("db_id"),
+                Report.adkim,
+                Report.aspf,
+                Report.p,
+                Report.sp,
+                Report.pct,
+            )
+            .join(Record, Report.id == Record.report_id)
+            .filter(Report.domain.in_(domains))
+            .filter(Report.org_name.in_(orgs))
+            .filter(
+                Report.begin_date >= start_date,
+                Report.begin_date <= pd.to_datetime(end_date) + pd.Timedelta(days=1),
+            )
+            .group_by(Report.id)
+        )
+        df = pd.read_sql(q.statement, session.bind)
+        if not df.empty:
+            df = df.sort_values("begin_date", ascending=False)
+        return df
+
+
+def fetch_report_detail(db_id: int):
+    """Return IP-level detail with DKIM/SPF auth results for a specific report."""
+    engine = _get_engine_cached()
+    Session = sessionmaker(bind=engine)
+    with Session() as session:
+        detail_q = session.query(
+            Record.id.label("record_id"),
+            Record.source_ip,
+            Record.host_name,
+            Record.count,
+            Record.disposition,
+            Record.dkim,
+            Record.spf,
+            Record.reason,
+        ).filter(Record.report_id == db_id)
+
+        detail_df = pd.read_sql(detail_q.statement, session.bind)
+
+        if detail_df.empty:
+            return detail_df
+
+        record_ids = detail_df["record_id"].unique().tolist()
+        auth_q = session.query(
+            AuthResult.record_id,
+            AuthResult.type,
+            AuthResult.domain,
+            AuthResult.result,
+        ).filter(AuthResult.record_id.in_(record_ids))
+
+        auth_df = pd.read_sql(auth_q.statement, session.bind)
+
+        if not auth_df.empty:
+            # Process DKIM auth results
+            dkim_auths = auth_df[auth_df["type"] == "dkim"]
+            if not dkim_auths.empty:
+                dkim_grouped = (
+                    dkim_auths.groupby("record_id")
+                    .agg(
+                        {
+                            "domain": lambda x: ", ".join([str(d) for d in x if pd.notna(d)]),
+                            "result": lambda x: ", ".join([str(r) for r in x if pd.notna(r)]),
+                        }
+                    )
+                    .reset_index()
+                    .rename(columns={"domain": "dkim_domain", "result": "dkim_auth"})
+                )
+                detail_df = detail_df.merge(dkim_grouped, on="record_id", how="left")
+            else:
+                detail_df["dkim_domain"] = None
+                detail_df["dkim_auth"] = None
+
+            # Process SPF auth results
+            spf_auths = auth_df[auth_df["type"] == "spf"]
+            if not spf_auths.empty:
+                spf_grouped = (
+                    spf_auths.groupby("record_id")
+                    .agg(
+                        {
+                            "domain": lambda x: ", ".join([str(d) for d in x if pd.notna(d)]),
+                            "result": lambda x: ", ".join([str(r) for r in x if pd.notna(r)]),
+                        }
+                    )
+                    .reset_index()
+                    .rename(columns={"domain": "spf_domain", "result": "spf_auth"})
+                )
+                detail_df = detail_df.merge(spf_grouped, on="record_id", how="left")
+            else:
+                detail_df["spf_domain"] = None
+                detail_df["spf_auth"] = None
+        else:
+            detail_df["dkim_domain"] = None
+            detail_df["dkim_auth"] = None
+            detail_df["spf_domain"] = None
+            detail_df["spf_auth"] = None
+
+        # Derive overall DMARC pass/fail
+        detail_df["dmarc"] = detail_df.apply(
+            lambda row: "pass" if row["disposition"] == "none" else "fail", axis=1
+        )
+
+        # Aggregate by IP
+        aggregate_cols = [
+            "source_ip", "host_name", "count", "disposition", "reason",
+            "dkim_domain", "dkim_auth", "spf_domain", "spf_auth",
+            "dkim", "spf", "dmarc",
+        ]
+        ip_stats = (
+            detail_df.groupby(
+                ["source_ip", "host_name", "disposition", "reason",
+                 "dkim_domain", "dkim_auth", "spf_domain", "spf_auth",
+                 "dkim", "spf", "dmarc"],
+                dropna=False,
+            )["count"]
+            .sum()
+            .reset_index()
+            .sort_values("count", ascending=False)
+        )
+        return ip_stats[aggregate_cols]
