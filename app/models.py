@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -52,7 +53,10 @@ def get_engine():
     engine = create_engine(database_url, echo=False)
     return engine
 
+import logging
 from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
 
 def init_db():
     engine = get_engine()
@@ -64,3 +68,69 @@ def init_db():
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS host_name VARCHAR(255)"))
         except Exception:
             pass
+
+
+def cleanup_old_reports():
+    """Deletes reports older than REPORT_RETENTION_DAYS (default 180).
+    A value of 0 disables cleanup. Deletes in FK order: auth_results → records → reports."""
+    days = int(os.environ.get("REPORT_RETENTION_DAYS", "180"))
+    if days <= 0:
+        logger.info("REPORT_RETENTION_DAYS is 0 or negative — skipping cleanup.")
+        return
+
+    engine = get_engine()
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    try:
+        cutoff = datetime.now() - timedelta(days=days)
+        logger.info(f"Cleaning up reports older than {days} days (before {cutoff.strftime('%Y-%m-%d %H:%M:%S')})...")
+
+        # Delete from leaf tables first due to FK constraints (no CASCADE defined)
+        deleted_auth = (
+            session.query(AuthResult)
+            .filter(
+                AuthResult.record_id.in_(
+                    session.query(Record.id).filter(
+                        Record.report_id.in_(
+                            session.query(Report.id).filter(Report.begin_date < cutoff)
+                        )
+                    )
+                )
+            )
+            .delete(synchronize_session=False)
+        )
+
+        deleted_records = (
+            session.query(Record)
+            .filter(
+                Record.report_id.in_(
+                    session.query(Report.id).filter(Report.begin_date < cutoff)
+                )
+            )
+            .delete(synchronize_session=False)
+        )
+
+        deleted_reports = (
+            session.query(Report)
+            .filter(Report.begin_date < cutoff)
+            .delete(synchronize_session=False)
+        )
+
+        session.commit()
+
+        total_deleted = deleted_auth + deleted_records + deleted_reports
+        if total_deleted > 0:
+            logger.info(
+                f"Cleanup complete: deleted {deleted_reports} reports, "
+                f"{deleted_records} records, {deleted_auth} auth_results "
+                f"(total {total_deleted} rows)."
+            )
+        else:
+            logger.info("Cleanup run — no old reports found to delete.")
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Cleanup failed: {e}")
+    finally:
+        session.close()

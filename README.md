@@ -26,6 +26,7 @@ A unified, robust Python + Streamlit dashboard for ingesting, parsing, and visua
 - **Multi-format Extraction** — Supports `.zip`, `.gz`, and raw `.xml` attachments. Handles nested archives automatically.
 - **Message Management** — Optionally moves processed emails to success/failure folders and marks originals for deletion. Keeps your inbox clean.
 - **Deduplication** — Each `report_id` is stored uniquely — re-ingesting the same report is safely skipped.
+- **Automatic Cleanup** — Configurable retention policy (`REPORT_RETENTION_DAYS`, default 180 days) prunes old reports, records, and auth results before each fetch cycle. Set to `0` to keep all data indefinitely.
 
 ### 🔬 Comprehensive Parsing
 - **Full XML Schema Support** — Parses `report_metadata`, `policy_published`, individual `record` entries, `auth_results` (DKIM & SPF), `policy_evaluated` disposition, and policy override reasons.
@@ -188,6 +189,9 @@ IMAP_MOVE_FOLDER_ERR=error
 # Polling interval in seconds (default: 300 = 5 minutes)
 FETCH_INTERVAL=300
 
+# Report retention in days (default: 180, set 0 to disable)
+REPORT_RETENTION_DAYS=180
+
 # Authentication (see Authentication Options section)
 AUTH_METHOD=none
 ```
@@ -233,6 +237,7 @@ On first launch, the dashboard will auto-refresh up to 3 times while waiting for
 | `DB_NAME` | No | `dmarc` | Database name |
 | `DB_USER` | No | `dmarcuser` | Database user |
 | `DB_PASSWORD` | No | `dmarcpass` | Database password |
+| `REPORT_RETENTION_DAYS` | No | `180` | Days to keep reports before cleanup. Set `0` to disable |
 
 ### Web Server & Proxy
 
@@ -320,13 +325,14 @@ server {
 
 ## Data Flow
 
-1. **Fetch** — [`fetcher.py`](app/fetcher.py) connects to IMAP via SSL, searches for unseen messages, extracts `.zip`/`.gz`/`.xml` attachments, and moves processed messages to configured folders.
-2. **Parse** — [`parser.py`](app/parser.py) uses `xmltodict` to parse the DMARC aggregate XML schema, resolves reverse DNS for each IP, and inserts normalized data into MariaDB via SQLAlchemy ORM.
-3. **Store** — Data lands in 3 tables:
+1. **Cleanup** — [`models.py`](app/models.py) runs `cleanup_old_reports()` before each fetch cycle, deleting reports older than `REPORT_RETENTION_DAYS` (default 180) along with their child `records` and `auth_results` rows. Set to `0` to keep everything.
+2. **Fetch** — [`fetcher.py`](app/fetcher.py) connects to IMAP via SSL, searches for unseen messages, extracts `.zip`/`.gz`/`.xml` attachments, and moves processed messages to configured folders.
+3. **Parse** — [`parser.py`](app/parser.py) uses `xmltodict` to parse the DMARC aggregate XML schema, resolves reverse DNS for each IP, and inserts normalized data into MariaDB via SQLAlchemy ORM.
+4. **Store** — Data lands in 3 tables:
    - `reports` — One row per DMARC report (metadata + published policy)
    - `records` — One row per IP/source in each report (disposition, alignment, count)
    - `auth_results` — DKIM/SPF validation details linked to records
-4. **Visualize** — Streamlit dashboard queries MariaDB with cached aggregation queries (300s TTL), renders Plotly interactive charts, and provides filterable drill-down tables.
+5. **Visualize** — Streamlit dashboard queries MariaDB with cached aggregation queries (300s TTL), renders Plotly interactive charts, and provides filterable drill-down tables.
 
 ---
 

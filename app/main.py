@@ -5,7 +5,7 @@ import subprocess
 import logging
 from fetcher import fetch_dmarc_reports
 from parser import parse_dmarc_xml
-from models import init_db
+from models import init_db, cleanup_old_reports
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,6 +17,9 @@ def fetcher_loop():
         try:
             logger.info("Initializing DB check before fetch cycle...")
             init_db()  # Ensures tables exist before operating
+
+            logger.info("Running cleanup of old reports...")
+            cleanup_old_reports()
 
             logger.info("Starting IMAP fetch cycle...")
             xmls = fetch_dmarc_reports()
