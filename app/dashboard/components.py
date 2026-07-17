@@ -5,7 +5,7 @@ Metric cards, compliance gauges, source badges, and section headers.
 """
 import streamlit as st
 import plotly.graph_objects as go
-from .styles import COLORS, SOURCE_CATEGORIES, PLOTLY_TEMPLATE, CHART_LAYOUT
+from dashboard.styles import COLORS, SOURCE_CATEGORIES, PLOTLY_TEMPLATE, CHART_LAYOUT
 
 
 def metric_card(

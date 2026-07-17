@@ -9,15 +9,15 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from .styles import COLORS, SOURCE_CATEGORIES, PLOTLY_TEMPLATE, CHART_LAYOUT
-from .components import (
+from dashboard.styles import COLORS, SOURCE_CATEGORIES, PLOTLY_TEMPLATE, CHART_LAYOUT
+from dashboard.components import (
     metric_card,
     source_badge,
     section_header,
     format_number,
     status_indicator,
 )
-from .queries import (
+from dashboard.queries import (
     fetch_overview_metrics,
     fetch_source_classification,
     fetch_forwarded_analysis,

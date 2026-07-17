@@ -12,11 +12,11 @@ from sqlalchemy.orm import sessionmaker
 from models import get_engine, Report
 from auth import require_auth
 
-from .styles import CUSTOM_CSS
-from .queries import fetch_filter_bounds, _get_engine_cached
-from .overview import render_overview
-from .sources import render_sources
-from .domains import render_domains
+from dashboard.styles import CUSTOM_CSS
+from dashboard.queries import fetch_filter_bounds, _get_engine_cached
+from dashboard.overview import render_overview
+from dashboard.sources import render_sources
+from dashboard.domains import render_domains
 
 
 def main():

@@ -9,9 +9,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from .styles import COLORS, PLOTLY_TEMPLATE, CHART_LAYOUT
-from .components import metric_card, compliance_gauge, section_header, format_number
-from .queries import (
+from dashboard.styles import COLORS, PLOTLY_TEMPLATE, CHART_LAYOUT
+from dashboard.components import metric_card, compliance_gauge, section_header, format_number
+from dashboard.queries import (
     fetch_overview_metrics,
     fetch_volume_timeseries,
     fetch_disposition_distribution,
