@@ -181,3 +181,6 @@ def _get_filters_from_session():
         "domains": tuple(st.session_state["dash_domains"]),
         "orgs": tuple(st.session_state["dash_orgs"]),
     }
+
+
+main()
