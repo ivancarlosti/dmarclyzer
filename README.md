@@ -372,11 +372,19 @@ server {
 
 ## Sample Screenshots
 
-![Main dashboard](https://github.com/user-attachments/assets/d69b4b84-785b-4802-beee-e5dc77876bf0)
-*Overview tab — compliance gauge, volume trends, and disposition distribution*
+<img width="1262" height="1030" alt="image" src="https://github.com/user-attachments/assets/c0cb1374-e844-4b6b-b59c-54af38062665" />
+<img width="1265" height="763" alt="image" src="https://github.com/user-attachments/assets/5c6c44c2-546c-4757-ac09-b1a7a2c5800a" />
+*Overview tab — DMARC Compliance Overview, Email Volume Over Time, Disposition Distribution, DKIM vs SPF Alignment, DMARC Policy Distribution*
 
-![Report selection for details](https://github.com/user-attachments/assets/1694b31f-39b0-4a5d-b426-caba35988eec)
-*Reports tab — master list with IP-level drill-down*
+<img width="1038" height="580" alt="image" src="https://github.com/user-attachments/assets/94e206c9-bbad-4b45-a573-cc53bff477f2" />
+<img width="1042" height="740" alt="image" src="https://github.com/user-attachments/assets/34230b26-89f8-4470-a6b9-d18254c16ab2" />
+*Sources tab — Source Classification, All Sending Sources, Top 10 Sending IPs, Forwarded Mail Analysis, DKIM/SPF Alignment Matrix*
+
+<img width="1075" height="877" alt="image" src="https://github.com/user-attachments/assets/4c56d1a7-a955-43a1-8aae-95b4f22220ea" />
+*Domains tab — Domain Overview, Domain Comparison, Policy Distribution by Domain, Policy Adoption Timeline*
+
+<img width="992" height="807" alt="image" src="https://github.com/user-attachments/assets/ce1b4b0a-8147-4991-be34-f801ce675f26" />
+*Reports tab — Available DMARC Reports*
 
 <!-- footer -->
 ---
