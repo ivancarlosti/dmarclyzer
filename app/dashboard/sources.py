@@ -11,7 +11,6 @@ import pandas as pd
 
 from dashboard.styles import COLORS, SOURCE_CATEGORIES, PLOTLY_TEMPLATE, CHART_LAYOUT
 from dashboard.components import (
-    metric_card,
     source_badge,
     section_header,
     format_number,
@@ -49,12 +48,10 @@ def render_sources(start_date, end_date, domains, orgs):
         pct = (count / total_all * 100) if total_all > 0 else 0.0
         info = SOURCE_CATEGORIES[cat]
         with cols[i]:
-            metric_card(
+            st.metric(
                 label=f"{info['icon']} {cat}",
                 value=format_number(count),
                 delta=f"{pct:.1f}% of total",
-                delta_color="normal",
-                bg_color=info["color"],
             )
 
     st.divider()

@@ -1,6 +1,6 @@
 # DMARClyzer Dashboard Package
 from dashboard.styles import COLORS, CUSTOM_CSS, PLOTLY_TEMPLATE, CHART_LAYOUT
-from dashboard.components import metric_card, compliance_gauge, source_badge, section_header
+from dashboard.components import compliance_gauge, source_badge, section_header
 from dashboard.queries import (
     fetch_filter_bounds,
     fetch_overview_metrics,

@@ -52,7 +52,6 @@ PLOTLY_TEMPLATE = "plotly_white"
 
 CHART_LAYOUT = {
     "font_family": "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
-    "title_font_size": 16,
     "margin": {"l": 40, "r": 20, "t": 50, "b": 40},
     "plot_bgcolor": "#ffffff",
     "paper_bgcolor": "#ffffff",

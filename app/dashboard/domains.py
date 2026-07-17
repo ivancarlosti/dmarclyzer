@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import pandas as pd
 
 from dashboard.styles import COLORS, PLOTLY_TEMPLATE, CHART_LAYOUT
-from dashboard.components import metric_card, section_header, format_number, status_indicator
+from dashboard.components import section_header, format_number, status_indicator
 from dashboard.queries import (
     fetch_domain_metrics,
     fetch_policy_distribution,
@@ -165,15 +165,16 @@ def render_domains(start_date, end_date, domains, orgs):
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
             )
             st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
-        elif not timeline_df.empty:
-            # Too many domains for line chart — use faceted bar
-            st.caption("Timeline shown as faceted bar chart (too many domains for line overlay)")
+        elif not timeline_df.empty and timeline_df["domain"].nunique() <= 10:
+            # Use faceted bar for moderate number of domains
+            st.caption("Timeline shown as faceted bar chart")
             fig = px.bar(
                 timeline_df,
                 x="date",
                 y="report_count",
                 color="p",
                 facet_row="domain",
+                facet_row_spacing=0.04,
                 color_discrete_map={
                     "reject": COLORS["reject"],
                     "quarantine": COLORS["quarantine"],
@@ -183,9 +184,31 @@ def render_domains(start_date, end_date, domains, orgs):
             )
             fig.update_layout(
                 **CHART_LAYOUT,
-                height=400,
+                height=max(400, 80 * timeline_df["domain"].nunique()),
             )
             fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+        elif not timeline_df.empty:
+            # Too many domains — show aggregated line chart per policy
+            st.caption("Too many domains for individual timelines — showing aggregated policy adoption")
+            agg = timeline_df.groupby(["date", "p"])["report_count"].sum().reset_index()
+            fig = px.line(
+                agg,
+                x="date",
+                y="report_count",
+                color="p",
+                color_discrete_map={
+                    "reject": COLORS["reject"],
+                    "quarantine": COLORS["quarantine"],
+                    "none": COLORS["none_policy"],
+                },
+                labels={"date": "Date", "report_count": "Reports", "p": "Policy"},
+            )
+            fig.update_layout(
+                **CHART_LAYOUT,
+                height=320,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            )
             st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
         else:
             st.info("No policy timeline data.")

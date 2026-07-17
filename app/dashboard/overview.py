@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import pandas as pd
 
 from dashboard.styles import COLORS, PLOTLY_TEMPLATE, CHART_LAYOUT
-from dashboard.components import metric_card, compliance_gauge, section_header, format_number
+from dashboard.components import compliance_gauge, section_header, format_number
 from dashboard.queries import (
     fetch_overview_metrics,
     fetch_volume_timeseries,
@@ -38,30 +38,18 @@ def render_overview(start_date, end_date, domains, orgs):
         compliance_gauge(metrics["pass_rate"], "DMARC Compliance")
 
     with col1:
-        metric_card(
-            "Total Messages",
-            format_number(metrics["total_messages"]),
-            icon="📧",
-            bg_color=COLORS["primary"],
-        )
+        st.metric("📧 Total Messages", format_number(metrics["total_messages"]))
 
     with col2:
-        metric_card(
-            "DMARC Pass Rate",
+        st.metric(
+            "🛡️ DMARC Pass Rate",
             f"{metrics['pass_rate']}%",
-            delta=f"{metrics['compliant_msgs']:,} compliant messages",
-            delta_color="up" if metrics["pass_rate"] >= 70 else "down",
-            icon="🛡️",
-            bg_color=COLORS["pass"] if metrics["pass_rate"] >= 70 else COLORS["forwarded"],
+            delta=f"{metrics['compliant_msgs']:,} compliant",
+            delta_color="normal" if metrics["pass_rate"] >= 70 else "inverse",
         )
 
     with col3:
-        metric_card(
-            "Unique Sending IPs",
-            format_number(metrics["total_ips"]),
-            icon="🌐",
-            bg_color=COLORS["secondary"],
-        )
+        st.metric("🌐 Unique Sending IPs", format_number(metrics["total_ips"]))
 
     st.divider()
 
