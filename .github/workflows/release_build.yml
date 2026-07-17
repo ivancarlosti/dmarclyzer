@@ -72,7 +72,7 @@ jobs:
         run: |
           LATEST_RELEASE_TAG=$(curl -sL -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" | jq -r .tag_name)
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" | jq -r .tag_name 2>/dev/null || echo "")
           if [ -z "$LATEST_RELEASE_TAG" ] || [ "$LATEST_RELEASE_TAG" = "null" ]; then
             LATEST_RELEASE_TAG="v1.0.0"
           fi
@@ -198,15 +198,18 @@ jobs:
 
       - name: 🚀 Create GitHub Release
         if: steps.check_commits.outputs.commit_count != '0'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "v${{ steps.version.outputs.VERSION }}"
-          name: "${{ steps.version.outputs.REPO_NAME }} v${{ steps.version.outputs.VERSION }}"
-          body: |
-            ### Changelog
-            Files changed in this release:
-            ${{ steps.changed_files.outputs.CHANGED }}
-          files: ${{ steps.version.outputs.ZIP_NAME }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat << 'BODYEOF' > /tmp/release_body.md
+          ### Changelog
+          Files changed in this release:
+          ${{ steps.changed_files.outputs.CHANGED }}
+          BODYEOF
+          gh release create "v${{ steps.version.outputs.VERSION }}" \
+            "${{ steps.version.outputs.ZIP_NAME }}" \
+            --title "${{ steps.version.outputs.REPO_NAME }} v${{ steps.version.outputs.VERSION }}" \
+            --notes-file /tmp/release_body.md
 
       # ----- Docker steps -----
       - name: 🔍 Check if Dockerfile exists
@@ -237,7 +240,7 @@ jobs:
 
       - name: 🐳 Build and Push Docker image
         if: steps.check_commits.outputs.commit_count != '0' && steps.dockerfile_check.outputs.exists == 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true

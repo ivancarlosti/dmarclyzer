@@ -71,7 +71,7 @@ jobs:
         run: git rm --cached -r source_readme || true
 
       - name: Commit and push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v6
         with:
           file_pattern: README.md
           commit_message: "Sync README from template [▶️]"
