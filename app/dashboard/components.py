@@ -95,7 +95,7 @@ def compliance_gauge(value: float, title: str = "DMARC Compliance"):
         template=PLOTLY_TEMPLATE,
     )
 
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
 
 
 def source_badge(category: str) -> str:

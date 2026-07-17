@@ -100,7 +100,7 @@ def render_overview(start_date, end_date, domains, orgs):
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         fig.update_traces(line=dict(width=2) if len(available_cols) > 1 else {})
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
     else:
         st.info("Not enough data for volume trend chart.")
 
@@ -133,7 +133,7 @@ def render_overview(start_date, end_date, domains, orgs):
                 legend=dict(orientation="h", y=-0.15),
             )
             fig.update_traces(textinfo="percent+value", textfont_size=12)
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
         else:
             st.info("No disposition data available.")
 
@@ -157,7 +157,7 @@ def render_overview(start_date, end_date, domains, orgs):
                 showlegend=True,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
             )
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
         else:
             st.info("No alignment data available.")
 
@@ -187,10 +187,10 @@ def render_overview(start_date, end_date, domains, orgs):
         fig.update_layout(
             **CHART_LAYOUT,
             height=300,
-            xaxis={"categoryorder": "total descending"},
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        fig.update_xaxes(categoryorder="total descending")
+        st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
     else:
         st.info("No policy distribution data available.")
 

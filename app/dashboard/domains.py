@@ -104,7 +104,7 @@ def render_domains(start_date, end_date, domains, orgs):
     st.dataframe(
         table_df[["domain", "total_messages", "pass_rate", "dkim_pass_rate", "spf_pass_rate", "policy", "unique_ips"]],
         column_config=column_config,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
     )
 
@@ -139,7 +139,7 @@ def render_domains(start_date, end_date, domains, orgs):
                 height=320,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
             )
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
         else:
             st.info("No policy distribution data.")
 
@@ -164,7 +164,7 @@ def render_domains(start_date, end_date, domains, orgs):
                 height=320,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
             )
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
         elif not timeline_df.empty:
             # Too many domains for line chart — use faceted bar
             st.caption("Timeline shown as faceted bar chart (too many domains for line overlay)")
@@ -186,6 +186,6 @@ def render_domains(start_date, end_date, domains, orgs):
                 height=400,
             )
             fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
         else:
             st.info("No policy timeline data.")

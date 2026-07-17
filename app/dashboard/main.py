@@ -167,7 +167,7 @@ def _render_sidebar():
 
     # ── Refresh ──
     st.sidebar.divider()
-    if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+    if st.sidebar.button("🔄 Refresh Data", width='stretch'):
         st.cache_data.clear()
         st.rerun()
 

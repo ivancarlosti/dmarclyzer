@@ -56,8 +56,6 @@ CHART_LAYOUT = {
     "margin": {"l": 40, "r": 20, "t": 50, "b": 40},
     "plot_bgcolor": "#ffffff",
     "paper_bgcolor": "#ffffff",
-    "xaxis": {"gridcolor": "#ecf0f1", "zeroline": False},
-    "yaxis": {"gridcolor": "#ecf0f1", "zeroline": False},
     "hovermode": "x unified",
 }
 

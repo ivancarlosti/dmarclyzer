@@ -147,9 +147,9 @@ def render_sources(start_date, end_date, domains, orgs):
             height=350,
             showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            yaxis={"categoryorder": "total ascending"},
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        fig.update_yaxes(categoryorder="total ascending")
+        st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
 
     with col_right:
         section_header(
@@ -175,9 +175,9 @@ def render_sources(start_date, end_date, domains, orgs):
                 **CHART_LAYOUT,
                 height=350,
                 showlegend=False,
-                yaxis={"categoryorder": "total ascending"},
             )
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            fig.update_yaxes(categoryorder="total ascending")
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
         else:
             st.info("No forwarded mail sources detected.")
 
@@ -207,8 +207,8 @@ def render_sources(start_date, end_date, domains, orgs):
         fig.update_layout(
             **CHART_LAYOUT,
             height=280,
-            xaxis={"side": "top"},
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        fig.update_xaxes(side="top")
+        st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
     else:
         st.info("Not enough data for alignment matrix.")
