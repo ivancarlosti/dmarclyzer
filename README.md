@@ -374,32 +374,26 @@ server {
 
 | ![image](https://github.com/user-attachments/assets/8840ea10-0696-4952-a397-7a7e66908d70) |
 | :---: |
-
 *Overview tab — DMARC Compliance Overview, Email Volume Over Time*
 
 | ![image](https://github.com/user-attachments/assets/5c6c44c2-546c-4757-ac09-b1a7a2c5800a) |
 | :---: |
-
 *Overview tab — Disposition Distribution, DKIM vs SPF Alignment, DMARC Policy Distribution*
 
 | ![image](https://github.com/user-attachments/assets/94e206c9-bbad-4b45-a573-cc53bff477f2) |
 | :---: |
-
 *Sources tab — Source Classification, All Sending Sources*
 
 | ![image](https://github.com/user-attachments/assets/34230b26-89f8-4470-a6b9-d18254c16ab2) |
 | :---: |
-
 *Sources tab — Top 10 Sending IPs, Forwarded Mail Analysis, DKIM/SPF Alignment Matrix*
 
 | ![image](https://github.com/user-attachments/assets/4c56d1a7-a955-43a1-8aae-95b4f22220ea) |
 | :---: |
-
 *Domains tab — Domain Overview, Domain Comparison, Policy Distribution by Domain, Policy Adoption Timeline*
 
 | ![image](https://github.com/user-attachments/assets/ce1b4b0a-8147-4991-be34-f801ce675f26) |
 | :---: |
-
 *Reports tab — Available DMARC Reports*
 
 <!-- footer -->
