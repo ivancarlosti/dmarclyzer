@@ -405,8 +405,7 @@ server {
 <!-- footer -->
 ---
 
-## 🧑‍💻 Consulting and Technical Support
-
+## 🧑‍💻 Consulting and technical support
 * For personal support and queries, please submit a new issue to have it addressed.
 * For commercial related questions, please [**contact me**][ivancarlos] for consulting costs.
 
