@@ -31,8 +31,13 @@ def render_reports(start_date, end_date, domains, orgs):
     display_df["Start Date"] = pd.to_datetime(display_df["Start Date"]).dt.date
     display_df["End Date"] = pd.to_datetime(display_df["End Date"]).dt.date
 
+    column_config = {
+        "Messages": st.column_config.NumberColumn("Messages", format="%d"),
+    }
+
     event = st.dataframe(
         display_df,
+        column_config=column_config,
         on_select="rerun",
         selection_mode="single-row",
         width="stretch",

@@ -74,24 +74,20 @@ def render_sources(start_date, end_date, domains, orgs):
         }
     )
 
-    # Render table with colored badges for category
-    for idx, row in display_df.iterrows():
-        cat = row["Category"]
-        info = SOURCE_CATEGORIES.get(cat, {})
-        display_df.at[idx, "Category"] = (
-            f'<span class="source-badge" style="background-color:{info.get("color", "#95a5a6")}">'
-            f'{info.get("icon", "")} {cat}</span>'
-        )
+    # Replace category with emoji + text for display (no HTML in st.dataframe)
+    display_df["Category"] = display_df["Category"].apply(
+        lambda cat: f'{SOURCE_CATEGORIES.get(cat, {}).get("icon", "")} {cat}'
+    )
 
-    # DKIM/SPF status indicators
+    # DKIM/SPF status indicators (plain text, no HTML)
     display_df["DKIM"] = df["dkim"].apply(
-        lambda x: status_indicator(x == "pass") if pd.notna(x) else "—"
+        lambda x: "✅ Pass" if x == "pass" else ("❌ Fail" if pd.notna(x) else "—")
     )
     display_df["SPF"] = df["spf"].apply(
-        lambda x: status_indicator(x == "pass") if pd.notna(x) else "—"
+        lambda x: "✅ Pass" if x == "pass" else ("❌ Fail" if pd.notna(x) else "—")
     )
 
-    # Column config
+    # Column config for interactive dataframe
     column_config = {
         "IP Address": st.column_config.TextColumn("IP Address", width="medium"),
         "Hostname": st.column_config.TextColumn("Hostname", width="medium"),
@@ -102,11 +98,11 @@ def render_sources(start_date, end_date, domains, orgs):
         "SPF": st.column_config.TextColumn("SPF", width="small"),
     }
 
-    st.write(
-        display_df[["IP Address", "Hostname", "Messages", "Category", "DKIM", "SPF", "Disposition"]].to_html(
-            escape=False, index=False
-        ),
-        unsafe_allow_html=True,
+    st.dataframe(
+        display_df[["IP Address", "Hostname", "Messages", "Category", "DKIM", "SPF", "Disposition"]],
+        column_config=column_config,
+        width="stretch",
+        hide_index=True,
     )
 
     st.caption(f"Showing {len(display_df)} unique sending sources")
