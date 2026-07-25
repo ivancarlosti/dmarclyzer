@@ -69,26 +69,31 @@ def render_overview(start_date, end_date, domains, orgs):
         available_cols = [c for c in ["none", "quarantine", "reject"] if c in pivot.columns]
         colors = {c: color_map.get(c, COLORS["secondary"]) for c in available_cols}
 
-        if len(available_cols) == 1:
-            fig = px.bar(
-                pivot, y=available_cols[0],
-                color_discrete_sequence=[colors[available_cols[0]]],
-                labels={"value": "Messages", "date": "Date", "variable": "Disposition"},
-            )
+        if not available_cols:
+            st.info("No known disposition columns (none, quarantine, reject) found in volume data.")
         else:
-            fig = px.area(
-                pivot, y=available_cols,
-                color_discrete_map=colors,
-                labels={"value": "Messages", "date": "Date", "variable": "Disposition"},
-            )
+            if len(available_cols) == 1:
+                fig = px.bar(
+                    pivot, y=available_cols[0],
+                    color_discrete_sequence=[colors[available_cols[0]]],
+                    labels={"value": "Messages", "date": "Date", "variable": "Disposition"},
+                )
+            else:
+                fig = px.area(
+                    pivot, y=available_cols,
+                    color_discrete_map=colors,
+                    labels={"value": "Messages", "date": "Date", "variable": "Disposition"},
+                )
 
-        fig.update_layout(
-            **CHART_LAYOUT,
-            height=350,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-        fig.update_traces(line=dict(width=2) if len(available_cols) > 1 else {})
-        st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+            fig.update_layout(
+                **CHART_LAYOUT,
+                height=350,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            # Only apply line width to scatter traces (area charts) — Bar traces don't support 'line'
+            if len(available_cols) > 1:
+                fig.update_traces(line=dict(width=2), selector=dict(type='scatter'))
+            st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
     else:
         st.info("Not enough data for volume trend chart.")
 
