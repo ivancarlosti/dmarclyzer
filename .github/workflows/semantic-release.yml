@@ -1,0 +1,75 @@
+name: 🚀 Semantic Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'manifest.json'
+      - 'README.md'
+      - '.github/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.gitignore'
+      - '.dockerignore'
+      - 'LICENSE'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write       # required to dispatch build.yml workflow
+
+jobs:
+  release:
+    name: 🏷️ Determine Version & Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.semantic.outputs.new_release_version }}
+      released: ${{ steps.semantic.outputs.new_release_published }}
+
+    steps:
+      - name: 📥 Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: 📦 Install semantic-release + plugins
+        run: |
+          npm install -g \
+            semantic-release \
+            @semantic-release/exec \
+            @semantic-release/git \
+            @semantic-release/github \
+            conventional-changelog-conventionalcommits
+
+      - name: 🚀 Run semantic-release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx semantic-release --debug 2>&1 | tee /tmp/semantic-output.log
+          # Extract version from output for downstream use
+          VERSION=$(grep -oP 'Published release \K[0-9]+\.[0-9]+\.[0-9]+' /tmp/semantic-output.log || echo "")
+          if [ -n "$VERSION" ]; then
+            echo "new_release_version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "new_release_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "new_release_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 🔔 Trigger package build workflow
+        if: steps.semantic.outputs.new_release_published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Dispatching build.yml for version v${{ steps.semantic.outputs.new_release_version }}"
+          gh workflow run build.yml \
+            -f version="v${{ steps.semantic.outputs.new_release_version }}"

@@ -1,4 +1,4 @@
-name: Update README
+name: 📖 Update README
 
 # Allow GitHub Actions to commit and push changes
 permissions:
@@ -11,6 +11,7 @@ on:
 
 jobs:
   update-readme:
+    name: 📖 Sync README from Template
     runs-on: ubuntu-latest
 
     env:
@@ -18,17 +19,17 @@ jobs:
       SOURCE_BRANCH: main
 
     steps:
-      - name: Checkout current repository
+      - name: 📥 Checkout current repository
         uses: actions/checkout@v4
 
-      - name: Checkout source README template
+      - name: 📥 Checkout source README template
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPO }}
           ref: ${{ env.SOURCE_BRANCH }}
           path: source_readme
 
-      - name: Update README.md (buttons and footer)
+      - name: 📝 Update README.md
         run: |
           set -e
           REPO_NAME="${GITHUB_REPOSITORY##*/}"
@@ -67,10 +68,10 @@ jobs:
             { print }
           ' > README.tmp && mv README.tmp README.md
 
-      - name: Remove source_readme from git index
+      - name: 🧹 Remove source_readme from git index
         run: git rm --cached -r source_readme || true
 
-      - name: Commit and push changes
+      - name: 💾 Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v6
         with:
           file_pattern: README.md

@@ -1,4 +1,4 @@
-name: Keepalive Workflow
+name: 🔄 Keepalive Workflow
 
 on:
   schedule:
@@ -9,14 +9,15 @@ on:
 
 jobs:
   keepalive:
+    name: 💓 Keep Alive
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Keep repository active
+      - name: 💓 Keep repository active
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
