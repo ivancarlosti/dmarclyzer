@@ -54,6 +54,66 @@ jobs:
           gh release upload "${{ steps.version.outputs.tag }}" \
             "${{ steps.version.outputs.zip_name }}" --clobber
 
+      - name: 📝 Update release with changed files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1)
+
+          # Build the "Files changed in this release" section
+          SECTION="## Files changed in this release"
+          SECTION+=$'\n\n'
+
+          if [ -n "${PREV_TAG}" ]; then
+            # List changed files
+            SECTION+="### Changed Files"
+            SECTION+=$'\n\n'
+            while IFS= read -r file; do
+              if [ -n "$file" ]; then
+                SECTION+="- $file"
+                SECTION+=$'\n'
+              fi
+            done < <(git diff --name-only "${PREV_TAG}".."${TAG}" 2>/dev/null)
+
+            SECTION+=$'\n'
+            # List commits with messages
+            SECTION+="### Commits"
+            SECTION+=$'\n\n'
+            while IFS= read -r commit_line; do
+              if [ -n "$commit_line" ]; then
+                SECTION+="- $commit_line"
+                SECTION+=$'\n'
+              fi
+            done < <(git log --pretty=format:"%s (%h)" "${PREV_TAG}".."${TAG}" 2>/dev/null)
+          else
+            # First release — list all changed files and commits
+            SECTION+="### Changed Files"
+            SECTION+=$'\n\n'
+            while IFS= read -r file; do
+              if [ -n "$file" ]; then
+                SECTION+="- $file"
+                SECTION+=$'\n'
+              fi
+            done < <(git diff --name-only HEAD~1..HEAD 2>/dev/null)
+
+            SECTION+=$'\n'
+            SECTION+="### Commits"
+            SECTION+=$'\n\n'
+            while IFS= read -r commit_line; do
+              if [ -n "$commit_line" ]; then
+                SECTION+="- $commit_line"
+                SECTION+=$'\n'
+              fi
+            done < <(git log --pretty=format:"%s (%h)" HEAD~1..HEAD 2>/dev/null)
+          fi
+
+          # Append section to release body, preserving the original title
+          CURRENT_TITLE=$(gh release view "$TAG" --json name -q ".name")
+          CURRENT_BODY=$(gh release view "$TAG" --json body -q ".body")
+          UPDATED_BODY="${CURRENT_BODY}"$'\n\n'"${SECTION}"
+          gh release edit "$TAG" --title "${CURRENT_TITLE}" --notes "${UPDATED_BODY}"
+
       # ---- Docker ----
       - name: 🔍 Check if Dockerfile exists
         id: dockerfile_check

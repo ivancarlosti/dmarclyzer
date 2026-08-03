@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths-ignore:
+      - '.releaserc'
       - 'manifest.json'
       - 'README.md'
       - '.github/**'
@@ -49,6 +50,28 @@ jobs:
             @semantic-release/git \
             @semantic-release/github \
             conventional-changelog-conventionalcommits
+
+      - name: 🔧 Ensure .releaserc exists
+        run: |
+          if [ ! -f .releaserc ]; then
+            echo 'No .releaserc found — generating default config.'
+            cat > .releaserc << 'RELEASERC'
+          {
+            "branches": ["main"],
+            "plugins": [
+              ["@semantic-release/commit-analyzer", {
+                "preset": "conventionalcommits"
+              }],
+              ["@semantic-release/release-notes-generator", {
+                "preset": "conventionalcommits"
+              }],
+              "@semantic-release/github"
+            ]
+          }
+          RELEASERC
+          else
+            echo 'Using existing .releaserc configuration.'
+          fi
 
       - name: 🚀 Run semantic-release
         id: semantic
