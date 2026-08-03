@@ -65,8 +65,12 @@ jobs:
           echo "✅ GitHub Release ${TAG} created."
           echo "Dispatching build.yml for version ${TAG}"
           gh workflow run build.yml -f version="${TAG}"
-          echo "Dispatching wordpress-deploy.yml for version ${TAG}"
-          gh workflow run wordpress-deploy.yml -f version="${TAG}" || true
+          if gh workflow view wordpress-deploy.yml &>/dev/null; then
+            echo "Dispatching wordpress-deploy.yml for version ${TAG}"
+            gh workflow run wordpress-deploy.yml -f version="${TAG}"
+          else
+            echo "Skipping wordpress-deploy.yml — not a WordPress plugin"
+          fi
           echo "new_release_version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "new_release_published=true" >> "$GITHUB_OUTPUT"
 
@@ -169,6 +173,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Dispatching wordpress-deploy.yml for version v${{ steps.version.outputs.new_release_version }}"
-          gh workflow run wordpress-deploy.yml \
-            -f version="v${{ steps.version.outputs.new_release_version }}"
+          if gh workflow view wordpress-deploy.yml &>/dev/null; then
+            echo "Dispatching wordpress-deploy.yml for version v${{ steps.version.outputs.new_release_version }}"
+            gh workflow run wordpress-deploy.yml \
+              -f version="v${{ steps.version.outputs.new_release_version }}"
+          else
+            echo "Skipping wordpress-deploy.yml — not a WordPress plugin"
+          fi
