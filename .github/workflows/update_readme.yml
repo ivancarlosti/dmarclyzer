@@ -29,6 +29,12 @@ jobs:
           ref: ${{ env.SOURCE_BRANCH }}
           path: source_readme
 
+      - name: 📄 Ensure README.md exists
+        run: |
+          if [ ! -f README.md ]; then
+            touch README.md
+          fi
+
       - name: 📝 Update README.md
         run: |
           set -e
