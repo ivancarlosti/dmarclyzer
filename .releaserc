@@ -2,16 +2,25 @@
   "branches": ["main"],
   "plugins": [
     ["@semantic-release/commit-analyzer", {
-      "preset": "conventionalcommits"
+      "preset": "angular",
+      "releaseRules": [
+        {"type": "docs", "release": "patch"},
+        {"type": "style", "release": "patch"},
+        {"type": "refactor", "release": "patch"},
+        {"type": "perf", "release": "patch"},
+        {"type": "test", "release": "patch"},
+        {"type": "build", "release": "patch"},
+        {"type": "ci", "release": "patch"}
+      ]
     }],
     ["@semantic-release/release-notes-generator", {
-      "preset": "conventionalcommits"
+      "preset": "angular"
     }],
     ["@semantic-release/exec", {
-      "prepareCmd": "echo ${nextRelease.version} > .version && sed -i \"s/\\\"version\\\": \\\".*\\\"/\\\"version\\\": \\\"${nextRelease.version}\\\"/\" manifest.json && sed -i \"s/^ \\* Version: .*/ * Version:           ${nextRelease.version}/\" icc-openid-client.php && sed -i \"s/const VERSION = '.*';/const VERSION = '${nextRelease.version}';/\" icc-openid-client.php"
+      "prepareCmd": "sed -i \"s/\\\"version\\\": \\\".*\\\"/\\\"version\\\": \\\"${nextRelease.version}\\\"/\" manifest.json"
     }],
     ["@semantic-release/git", {
-      "assets": ["manifest.json", "icc-openid-client.php"],
+      "assets": ["manifest.json"],
       "message": "chore(release): bump version to ${nextRelease.version} [skip ci]"
     }],
     "@semantic-release/github"

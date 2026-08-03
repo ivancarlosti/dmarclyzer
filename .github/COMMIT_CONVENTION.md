@@ -74,20 +74,13 @@ semantic-release.yml runs
         │
         ├── Analyzes commits since last tag
         ├── Determines next version (MAJOR / MINOR / PATCH)
-        ├── Stamps version into manifest.json, icc-openid-client.php
+        ├── Stamps version into project metadata files
         ├── Commits version-stamped files (skip ci)
         ├── Creates git tag (vX.Y.Z)
         └── Creates GitHub Release with changelog
                 │
-                ├──▶ Dispatches build.yml
-                │       │
-                │       ├── Uploads ZIP package to release
-                │       └── Builds & pushes Docker image to ghcr.io
-                │
-                └──▶ Dispatches wordpress-deploy.yml
+                └──▶ Dispatches build.yml
                         │
-                        ├── Stamps version in plugin files
-                        ├── Creates WordPress ZIP
-                        ├── Uploads ZIP to GitHub Release
-                        └── Deploys to WordPress.org SVN
+                        ├── Uploads ZIP package to release
+                        └── Builds & pushes Docker image to ghcr.io
 ```
