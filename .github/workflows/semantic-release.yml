@@ -5,8 +5,6 @@ on:
     branches:
       - main
     paths-ignore:
-      - '.releaserc'
-      - 'manifest.json'
       - 'README.md'
       - '.github/**'
       - 'package.json'
@@ -27,8 +25,8 @@ jobs:
     name: 🏷️ Determine Version & Create Release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.semantic.outputs.new_release_version }}
-      released: ${{ steps.semantic.outputs.new_release_published }}
+      version: ${{ steps.version.outputs.new_release_version }}
+      released: ${{ steps.version.outputs.new_release_published }}
 
     steps:
       - name: 📥 Checkout with full history
@@ -65,6 +63,13 @@ jobs:
               ["@semantic-release/release-notes-generator", {
                 "preset": "conventionalcommits"
               }],
+              ["@semantic-release/exec", {
+                "prepareCmd": "echo ${nextRelease.version} > .version && sed -i \"s/\\\"version\\\": \\\".*\\\"/\\\"version\\\": \\\"${nextRelease.version}\\\"/\" manifest.json && sed -i \"s/^ \\* Version: .*/ * Version:           ${nextRelease.version}/\" icc-openid-client.php && sed -i \"s/const VERSION = '.*';/const VERSION = '${nextRelease.version}';/\" icc-openid-client.php"
+              }],
+              ["@semantic-release/git", {
+                "assets": ["manifest.json", "icc-openid-client.php"],
+                "message": "chore(release): bump version to ${nextRelease.version} [skip ci]"
+              }],
               "@semantic-release/github"
             ]
           }
@@ -77,22 +82,36 @@ jobs:
         id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release --debug
+
+      - name: 🔍 Read released version
+        id: version
+        if: always() && steps.semantic.outcome == 'success'
         run: |
-          npx semantic-release --debug 2>&1 | tee /tmp/semantic-output.log
-          # Extract version from output for downstream use
-          VERSION=$(grep -oP 'Published release \K[0-9]+\.[0-9]+\.[0-9]+' /tmp/semantic-output.log || echo "")
-          if [ -n "$VERSION" ]; then
-            echo "new_release_version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ -f .version ]; then
+            VERSION=$(cat .version)
+            echo "new_release_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "new_release_published=true" >> "$GITHUB_OUTPUT"
+            echo "Detected release version: ${VERSION}"
           else
             echo "new_release_published=false" >> "$GITHUB_OUTPUT"
+            echo "No .version file found — no release was published."
           fi
 
       - name: 🔔 Trigger package build workflow
-        if: steps.semantic.outputs.new_release_published == 'true'
+        if: steps.version.outputs.new_release_published == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Dispatching build.yml for version v${{ steps.semantic.outputs.new_release_version }}"
+          echo "Dispatching build.yml for version v${{ steps.version.outputs.new_release_version }}"
           gh workflow run build.yml \
-            -f version="v${{ steps.semantic.outputs.new_release_version }}"
+            -f version="v${{ steps.version.outputs.new_release_version }}"
+
+      - name: 🎯 Trigger WordPress deploy workflow
+        if: steps.version.outputs.new_release_published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Dispatching wordpress-deploy.yml for version v${{ steps.version.outputs.new_release_version }}"
+          gh workflow run wordpress-deploy.yml \
+            -f version="v${{ steps.version.outputs.new_release_version }}"
