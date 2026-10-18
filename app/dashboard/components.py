@@ -6,6 +6,7 @@ Metric cards, compliance gauges, source badges, and section headers.
 import streamlit as st
 import plotly.graph_objects as go
 from dashboard.styles import COLORS, SOURCE_CATEGORIES, PLOTLY_TEMPLATE, CHART_LAYOUT
+from security import escape_html, is_safe_hex_color
 
 
 def metric_card(
@@ -16,8 +17,12 @@ def metric_card(
     icon: str = "",
     bg_color: str | None = None,
 ):
-    """Render a styled KPI metric card using custom HTML."""
-    icon_html = f'<div class="card-icon">{icon}</div>' if icon else ""
+    """Render a styled KPI metric card using custom HTML.
+
+    Every interpolated value is escaped: labels/values can originate from
+    inbound DMARC reports and must never be interpreted as markup.
+    """
+    icon_html = f'<div class="card-icon">{escape_html(icon)}</div>' if icon else ""
     delta_html = ""
     if delta:
         d_color = {
@@ -26,21 +31,28 @@ def metric_card(
             "down": "#e74c3c",
             "off": "#7f8c8d",
         }.get(delta_color, "#7f8c8d")
-        delta_html = f'<div class="card-delta" style="color:{d_color}">{delta}</div>'
+        delta_html = (
+            f'<div class="card-delta" style="color:{d_color}">'
+            f"{escape_html(delta)}</div>"
+        )
 
-    style_attr = f'style="border-left: 4px solid {bg_color};"' if bg_color else ""
+    if bg_color and is_safe_hex_color(bg_color):
+        style_attr = f'style="border-left: 4px solid {bg_color};"'
+    else:
+        style_attr = ""
 
     st.markdown(
         f"""
         <div class="dash-card" {style_attr}>
             {icon_html}
-            <div class="card-label">{label}</div>
-            <div class="card-value">{value}</div>
+            <div class="card-label">{escape_html(label)}</div>
+            <div class="card-value">{escape_html(value)}</div>
             {delta_html}
         </div>
         """,
         unsafe_allow_html=True,
     )
+
 
 
 def compliance_gauge(value: float, title: str = "DMARC Compliance"):
@@ -102,17 +114,23 @@ def source_badge(category: str) -> str:
     """Return an HTML colored badge for a source classification category."""
     info = SOURCE_CATEGORIES.get(category)
     if not info:
-        return f'<span class="source-badge" style="background-color:#95a5a6">{category}</span>'
-    return f'<span class="source-badge" style="background-color:{info["color"]}">{info["icon"]} {category}</span>'
+        return (
+            '<span class="source-badge" style="background-color:#95a5a6">'
+            f"{escape_html(category)}</span>"
+        )
+    return (
+        f'<span class="source-badge" style="background-color:{info["color"]}">'
+        f'{info["icon"]} {escape_html(category)}</span>'
+    )
 
 
 def section_header(title: str, description: str = ""):
     """Render a consistent section header with optional subtitle."""
-    desc_html = f"<p>{description}</p>" if description else ""
+    desc_html = f"<p>{escape_html(description)}</p>" if description else ""
     st.markdown(
         f"""
         <div class="section-header">
-            <h3>{title}</h3>
+            <h3>{escape_html(title)}</h3>
             {desc_html}
         </div>
         """,
@@ -123,8 +141,15 @@ def section_header(title: str, description: str = ""):
 def status_indicator(passed: bool, label_true: str = "Pass", label_false: str = "Fail"):
     """Render a small inline pass/fail indicator."""
     if passed:
-        return f'<span style="color:{COLORS["pass"]};font-weight:600">✅ {label_true}</span>'
-    return f'<span style="color:{COLORS["fail"]};font-weight:600">❌ {label_false}</span>'
+        return (
+            f'<span style="color:{COLORS["pass"]};font-weight:600">'
+            f"✅ {escape_html(label_true)}</span>"
+        )
+    return (
+        f'<span style="color:{COLORS["fail"]};font-weight:600">'
+        f"❌ {escape_html(label_false)}</span>"
+    )
+
 
 
 def format_number(n: int | float) -> str:

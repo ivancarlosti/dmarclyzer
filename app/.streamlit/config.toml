@@ -1,0 +1,13 @@
+[server]
+headless = true
+address = "0.0.0.0"
+port = 8080
+# Cross-site request forgery protection for Streamlit's own websocket/HTTP API
+enableXsrfProtection = true
+enableCORS = true
+# Dashboard never uploads files; keep the surface minimal.
+maxUploadSize = 5
+enableStaticServing = false
+
+[browser]
+gatherUsageStats = false

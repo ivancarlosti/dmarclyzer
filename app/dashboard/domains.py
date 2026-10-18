@@ -11,6 +11,7 @@ import pandas as pd
 
 from dashboard.styles import COLORS, PLOTLY_TEMPLATE, CHART_LAYOUT
 from dashboard.components import section_header, format_number, status_indicator
+from security import escape_html
 from dashboard.queries import (
     fetch_domain_metrics,
     fetch_policy_distribution,
@@ -47,7 +48,7 @@ def render_domains(start_date, end_date, domains, orgs):
                     f"""
                     <div class="dash-card" style="border-left: 4px solid {pass_color};">
                         <div style="font-size: 1.1rem; font-weight: 600; color: {COLORS['primary']}; margin-bottom: 8px;">
-                            🌐 {row['domain']}
+                            🌐 {escape_html(row['domain'])}
                         </div>
                         <div style="display: flex; gap: 16px; flex-wrap: wrap;">
                             <div>
@@ -68,7 +69,7 @@ def render_domains(start_date, end_date, domains, orgs):
                             </div>
                             <div>
                                 <span style="font-size: 0.7rem; color: {COLORS['text_light']}; text-transform: uppercase;">Policy</span><br>
-                                <span style="font-weight: 700; color: {COLORS['primary']};">p={row['policy']}</span>
+                                <span style="font-weight: 700; color: {COLORS['primary']};">p={escape_html(row['policy'])}</span>
                             </div>
                             <div>
                                 <span style="font-size: 0.7rem; color: {COLORS['text_light']}; text-transform: uppercase;">IPs</span><br>

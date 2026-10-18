@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Local secrets. NOTE: docker/.env is intentionally tracked as the documented
+# configuration template — replace the placeholder values and never commit
+# real credentials to it.
+.env
+.env.local
+.env.*.local
+
+# Tooling / test artefacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Runtime artefacts
+*.log

@@ -9,3 +9,17 @@ services:
       - .env
     extra_hosts:
       - host.docker.internal:host-gateway
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, socket; socket.create_connection(('127.0.0.1', int(os.environ.get('STREAMLIT_SERVER_PORT', '8080'))), 3).close()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s

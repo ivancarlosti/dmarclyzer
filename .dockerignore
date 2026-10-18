@@ -1,0 +1,16 @@
+.git
+.gitignore
+.github
+plans
+tests
+docker
+README.md
+LICENSE
+
+**/__pycache__
+**/*.py[cod]
+.venv
+venv
+.pytest_cache
+.env
+*.log

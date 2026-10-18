@@ -23,9 +23,9 @@ A unified, robust Python + Streamlit dashboard for ingesting, parsing, and visua
 
 ### 📥 Automated Report Ingestion
 - **IMAP Polling Daemon** — Continuously connects to your IMAP inbox (configurable interval, default every 5 minutes), detects unread emails, and extracts DMARC aggregate XML attachments.
-- **Multi-format Extraction** — Supports `.zip`, `.gz`, and raw `.xml` attachments. Handles nested archives automatically.
+- **Multi-format Extraction** — Supports `.zip`, `.gz`, and raw `.xml` attachments. Every payload is read through bounded streams, so oversized attachments, ZIP entry counts and decompression bombs are rejected (see `MAX_*` settings).
 - **Message Management** — Optionally moves processed emails to success/failure folders and marks originals for deletion. Keeps your inbox clean.
-- **Deduplication** — Each `report_id` is stored uniquely — re-ingesting the same report is safely skipped.
+- **Deduplication** — Reports are unique per `(report_id, org_name, domain)`, matching RFC 7489 scoping, so re-ingesting the same report is safely skipped without letting one reporter suppress another's data.
 - **Automatic Cleanup** — Configurable retention policy (`REPORT_RETENTION_DAYS`, default 180 days) prunes old reports, records, and auth results before each fetch cycle. Set to `0` to keep all data indefinitely.
 
 ### 🔬 Comprehensive Parsing
@@ -71,9 +71,9 @@ Three auth modes configurable via environment variable:
 
 | Mode | Description |
 |------|-------------|
-| `none` | No authentication (default, open access) |
-| `account` | Username/password login with optional ReCaptcha support |
-| `keycloak` | OpenID Connect SSO via Keycloak with email restriction |
+| `none` | No authentication (default, open access — log a warning at startup) |
+| `account` | Username/password login, constant-time comparison, per-session lockout, optional server-verified reCAPTCHA |
+| `keycloak` | OpenID Connect authorization-code flow with PKCE, signed `state`, and a required email allow-list |
 
 ### 🌐 Reverse Proxy Ready
 - Configurable `PORT` and `DOMAIN` environment variables for seamless integration behind Nginx, Traefik, Caddy, or any reverse proxy.
@@ -124,6 +124,7 @@ dmarclyzer/
 │   ├── parser.py                # XML parsing + MariaDB insertion
 │   ├── models.py                # SQLAlchemy ORM models + DB init
 │   ├── auth.py                  # Authentication (none/account/keycloak)
+│   ├── security.py              # Escaping, limits, signed state/PKCE helpers
 │   └── dashboard/               # Dashboard package (9 modules)
 │       ├── __init__.py          # Package init
 │       ├── main.py              # Tab navigation + sidebar + session state
@@ -137,8 +138,10 @@ dmarclyzer/
 ├── docker/
 │   ├── docker-compose.yml       # Single-service container stack
 │   └── .env                     # Configuration template
-├── Dockerfile                   # Python 3.11-slim image
-├── requirements.txt             # Python dependencies
+├── tests/                       # Security regression tests (stdlib only)
+├── plans/                       # Dated security audit / remediation plans
+├── Dockerfile                   # Python 3.11-slim image (non-root)
+├── requirements.txt             # Python dependencies (pinned)
 ├── LICENSE                      # MIT License
 └── README.md                    # This file
 ```
@@ -227,16 +230,22 @@ On first launch, the dashboard will auto-refresh up to 3 times while waiting for
 | `IMAP_FOLDER` | No | `INBOX` | Mailbox folder to monitor |
 | `IMAP_MOVE_FOLDER` | No | — | Move successfully processed emails here |
 | `IMAP_MOVE_FOLDER_ERR` | No | — | Move failed emails here |
-| `FETCH_INTERVAL` | No | `300` | Seconds between IMAP poll cycles |
+| `FETCH_INTERVAL` | No | `300` | Seconds between IMAP poll cycles (minimum 30) |
+| `MAX_ATTACHMENT_MB` | No | `25` | Maximum size of a single attachment |
+| `MAX_XML_MB` | No | `10` | Maximum size of one XML report after decompression |
+| `MAX_ARCHIVE_UNCOMPRESSED_MB` | No | `50` | Total uncompressed budget per archive |
+| `MAX_ZIP_ENTRIES` | No | `10` | Maximum XML members read from one ZIP |
 
 ### Database Configuration
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DB_HOST` | No | `host.docker.internal` | MariaDB hostname or IP |
+| `DB_PORT` | No | `3306` | MariaDB port |
 | `DB_NAME` | No | `dmarc` | Database name |
 | `DB_USER` | No | `dmarcuser` | Database user |
-| `DB_PASSWORD` | No | `dmarcpass` | Database password |
+| `DB_PASSWORD` | No | `dmarcpass` | Database password — **change it**; the app warns when the default is used |
+| `DB_SSL_CA` | No | — | CA bundle path inside the container; enables TLS to MariaDB |
 | `REPORT_RETENTION_DAYS` | No | `180` | Days to keep reports before cleanup. Set `0` to disable |
 
 ### Web Server & Proxy
@@ -251,16 +260,20 @@ On first launch, the dashboard will auto-refresh up to 3 times while waiting for
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `AUTH_METHOD` | No | `none` | `none`, `account`, or `keycloak` |
-| `ACCOUNT_LOGIN` | No | — | Username for `account` auth |
-| `ACCOUNT_PASSWORD` | No | — | Password for `account` auth |
-| `RECAPTCHA_CLIENTID` | No | — | ReCaptcha site key (account auth) |
-| `RECAPTCHA_CLIENTSECRET` | No | — | ReCaptcha secret (account auth) |
-| `KEYCLOAK_BASE_URL` | No | — | Keycloak server URL |
-| `KEYCLOAK_REALM` | No | — | Keycloak realm name |
-| `KEYCLOAK_CLIENT_ID` | No | — | Keycloak client ID |
-| `KEYCLOAK_CLIENT_SECRET` | No | — | Keycloak client secret |
-| `KEYCLOAK_REDIRECT_URI` | No | — | OAuth2 redirect URI |
-| `KEYCLOAK_EMAIL_ACCOUNT` | No | — | Restrict access to this email |
+| `ACCOUNT_LOGIN` | `account` | — | Username for `account` auth |
+| `ACCOUNT_PASSWORD` | `account` | — | Password for `account` auth |
+| `LOGIN_MAX_ATTEMPTS` | No | `5` | Failed logins per browser session before lockout |
+| `RECAPTCHA_CLIENTID` | No | — | reCAPTCHA site key; when set, a token input is shown |
+| `RECAPTCHA_CLIENTSECRET` | No | — | reCAPTCHA secret; when set, tokens are **verified server-side** and login fails closed without one |
+| `KEYCLOAK_BASE_URL` | `keycloak` | — | Keycloak base URL (must be `https://` unless `ALLOW_INSECURE_IDP=true`) |
+| `KEYCLOAK_REALM` | `keycloak` | — | Keycloak realm name |
+| `KEYCLOAK_CLIENT_ID` | `keycloak` | — | Keycloak client ID |
+| `KEYCLOAK_CLIENT_SECRET` | `keycloak` | — | Keycloak client secret |
+| `KEYCLOAK_REDIRECT_URI` | `keycloak` | — | OAuth2 redirect URI registered for the client |
+| `KEYCLOAK_EMAIL_ACCOUNT` | `keycloak` | — | Comma-separated allow-list of email addresses (**required**) |
+| `AUTH_STATE_SECRET` | `keycloak` | — | HMAC key for OIDC `state`/PKCE derivation (**required**) |
+| `AUTH_STATE_TTL_SECONDS` | No | `300` | Maximum age of a signed login state (60–3600) |
+| `ALLOW_INSECURE_IDP` | No | `false` | Allow `http://` IdP/redirect URLs (local development only) |
 
 ---
 
@@ -270,7 +283,7 @@ On first launch, the dashboard will auto-refresh up to 3 times while waiting for
 ```env
 AUTH_METHOD=none
 ```
-Dashboard is publicly accessible. No login required.
+Dashboard is publicly accessible. A warning is logged at startup — use this only on a trusted network or behind an authenticating reverse proxy.
 
 ### Account (Username/Password)
 ```env
@@ -278,7 +291,7 @@ AUTH_METHOD=account
 ACCOUNT_LOGIN=admin
 ACCOUNT_PASSWORD=your_secure_password
 ```
-Simple form-based login. Optionally add ReCaptcha by setting `RECAPTCHA_CLIENTID` and `RECAPTCHA_CLIENTSECRET`.
+Both variables must be set; otherwise sign-in is refused. Credentials are compared in constant time, and after `LOGIN_MAX_ATTEMPTS` failures (default 5) the browser session is locked until it is restarted. Add reCAPTCHA by setting `RECAPTCHA_CLIENTID` and `RECAPTCHA_CLIENTSECRET` — when the secret is present, a token is required and verified server-side.
 
 ### Keycloak (SSO)
 ```env
@@ -288,9 +301,37 @@ KEYCLOAK_REALM=YourRealm
 KEYCLOAK_CLIENT_ID=dmarclyzer
 KEYCLOAK_CLIENT_SECRET=your_client_secret
 KEYCLOAK_REDIRECT_URI=https://dmarclyzer.example.com/
-KEYCLOAK_EMAIL_ACCOUNT=you@example.com
+KEYCLOAK_EMAIL_ACCOUNT=you@example.com,teammate@example.com
+AUTH_STATE_SECRET=<output of: python -c "import secrets;print(secrets.token_urlsafe(48))">
 ```
-OpenID Connect flow with optional email restriction. Redirects to Keycloak login, exchanges authorization code for tokens, and verifies user info.
+Authorization-code flow with PKCE (`S256`), a signed short-lived `state` and a nonce. `KEYCLOAK_EMAIL_ACCOUNT` (comma-separated) and `AUTH_STATE_SECRET` are **required**; without them login is refused, because an empty allow-list previously granted every authenticated realm user access. Identities with `email_verified=false` are rejected.
+
+---
+
+## Security
+
+Security-relevant behaviour in this release (see [`plans/2026-10-18-security-audit-and-remediation.md`](plans/2026-10-18-security-audit-and-remediation.md) for the full audit):
+
+- **Output encoding** — All DMARC-derived or reverse-DNS-derived values rendered as HTML are escaped (`app/security.py`), preventing stored XSS from malicious reports.
+- **OIDC hardening** — Signed `state`, PKCE, nonce, request timeouts, no redirects, and `trust_env=False` (no `.netrc` credential leakage). Provider error bodies are logged server-side, never shown to the browser.
+- **Fail-closed authentication** — SSO requires an explicit email allow-list; account auth requires configured credentials; reCAPTCHA is enforced when a secret is configured. A "Sign Out" button clears the session.
+- **Untrusted input limits** — XML entity expansion is disabled; report strings are truncated to column widths; numbers and timestamps are range-checked; attachments/archives are read through bounded streams (`MAX_ATTACHMENT_MB`, `MAX_XML_MB`, `MAX_ARCHIVE_UNCOMPRESSED_MB`, `MAX_ZIP_ENTRIES`).
+- **IMAP hygiene** — Mailbox names are validated and quoted, and the connection is always closed in a `finally` block.
+- **Database** — DSN built with `URL.create()` (passwords with `@:/` no longer corrupt or leak), optional TLS via `DB_SSL_CA`, pool pre-ping, and a loud warning when the default password is used.
+- **Container** — Runs as unprivileged uid 10001 with no build toolchain, `no-new-privileges`, all capabilities dropped, and a healthcheck.
+- **Supply chain** — `authlib` and `python-dotenv` removed (unused, vulnerable pins); all dependencies pinned to patched releases; `pip-audit` and the unit tests run in CI (`.github/workflows/security.yml`).
+
+> **Residual risk:** Streamlit does not expose server-side session cookies, so the OIDC `state` is verified through an HMAC-signed token rather than a browser-bound cookie, and the account-login lockout is per browser session (clearing the session cookie resets it). For internet-facing deployments, terminate authentication at an authenticating reverse proxy (oauth2-proxy, Traefik forward-auth, Authelia) with rate limiting, and keep `AUTH_METHOD=none` only inside the trusted network. The container serves plain HTTP on `8080`; publish it over HTTPS.
+
+Run the security checks locally:
+
+```bash
+python -m compileall -q app tests
+python -m unittest discover -s tests -v
+pip-audit -r requirements.txt --no-deps --strict
+```
+
+Please report vulnerabilities privately via the repository's Security tab rather than a public issue.
 
 ---
 
@@ -341,14 +382,14 @@ server {
 | Component | Technology |
 |-----------|-----------|
 | Runtime | Python 3.11 |
-| Dashboard | Streamlit ≥1.35 |
-| Charts | Plotly ≥5.18 |
+| Dashboard | Streamlit 1.66 |
+| Charts | Plotly 5.24 |
 | Database | MariaDB (external, user-provided) |
 | ORM | SQLAlchemy 2.0 |
-| DB Driver | PyMySQL |
+| DB Driver | PyMySQL 1.2 |
 | IMAP | Python stdlib `imaplib` |
 | XML Parsing | xmltodict |
-| Auth (SSO) | Authlib + Requests |
+| Auth (SSO) | Hand-rolled OIDC authorization-code + PKCE via Requests |
 | Containerization | Docker + Docker Compose |
 
 ---

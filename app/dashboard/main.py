@@ -4,13 +4,16 @@ DMARClyzer Dashboard — Main Entry Point
 Handles sidebar filters, tab navigation, session state,
 and the "no data yet" empty state.
 """
+import os
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from sqlalchemy.orm import sessionmaker
 
 from models import get_engine, Report
-from auth import require_auth
+from auth import require_auth, logout
+from security import escape_markdown
 
 from dashboard.styles import CUSTOM_CSS
 from dashboard.queries import fetch_filter_bounds, _get_engine_cached
@@ -174,6 +177,16 @@ def _render_sidebar():
     if st.sidebar.button("🔄 Refresh Data", width='stretch'):
         st.cache_data.clear()
         st.rerun()
+
+    # ── Session / Sign out ──
+    if (os.environ.get("AUTH_METHOD", "none") or "none").strip().lower() != "none":
+        st.sidebar.divider()
+        signed_in_as = st.session_state.get("auth_email")
+        if signed_in_as:
+            st.sidebar.caption(f"Signed in as {escape_markdown(signed_in_as)}")
+        if st.sidebar.button("🚪 Sign Out", width='stretch'):
+            logout()
+            st.rerun()
 
 
 def _get_filters_from_session():

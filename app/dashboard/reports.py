@@ -9,6 +9,7 @@ import pandas as pd
 
 from dashboard.components import section_header
 from dashboard.queries import fetch_report_list, fetch_report_detail
+from security import escape_markdown
 
 
 def render_reports(start_date, end_date, domains, orgs):
@@ -58,14 +59,19 @@ def render_reports(start_date, end_date, domains, orgs):
 
     # Policy Header
     st.markdown(
-        f"**Report from {selected_report['org_name']} for {selected_report['domain']}**"
+        f"**Report from {escape_markdown(selected_report['org_name'])} "
+        f"for {escape_markdown(selected_report['domain'])}**"
     )
     st.markdown(
-        f"{pd.to_datetime(selected_report['begin_date']).date()} to {pd.to_datetime(selected_report['end_date']).date()}"
+        f"{pd.to_datetime(selected_report['begin_date']).date()} to "
+        f"{pd.to_datetime(selected_report['end_date']).date()}"
     )
     st.markdown(
-        f"**Policies:** adkim={selected_report['adkim']}, aspf={selected_report['aspf']}, "
-        f"p={selected_report['p']}, sp={selected_report['sp']}, pct={selected_report['pct']}"
+        f"**Policies:** adkim={escape_markdown(selected_report['adkim'])}, "
+        f"aspf={escape_markdown(selected_report['aspf'])}, "
+        f"p={escape_markdown(selected_report['p'])}, "
+        f"sp={escape_markdown(selected_report['sp'])}, "
+        f"pct={escape_markdown(selected_report['pct'])}"
     )
 
     st.divider()
