@@ -1,0 +1,3 @@
+# Extra dependency used only by scripts/generate_screenshots.py.
+# The dashboard itself uses requirements.txt at the repository root.
+playwright==1.64.0

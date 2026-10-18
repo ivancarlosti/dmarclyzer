@@ -140,6 +140,12 @@ dmarclyzer/
 │   └── .env                     # Configuration template
 ├── tests/                       # Security regression tests (stdlib only)
 ├── plans/                       # Dated security audit / remediation plans
+├── docs/
+│   └── screenshots/             # Generated README screenshots + gallery notes
+├── scripts/
+│   ├── seed_demo_data.py        # Deterministic synthetic demo data
+│   ├── generate_screenshots.py  # Docker + Streamlit + Playwright capture
+│   └── requirements-screenshots.txt
 ├── Dockerfile                   # Python 3.11-slim image (non-root)
 ├── requirements.txt             # Python dependencies (pinned)
 ├── LICENSE                      # MIT License
@@ -419,29 +425,39 @@ server {
 
 ## Sample Screenshots
 
-| ![image](https://github.com/user-attachments/assets/8840ea10-0696-4952-a397-7a7e66908d70) |
-| :---: |
-*Overview tab — DMARC Compliance Overview, Email Volume Over Time*
+All screenshots are real captures of the dashboard running against synthetic demo data: domains use the reserved `.example` TLD and sender IPs use RFC 5737 documentation ranges. See [`docs/screenshots/README.md`](docs/screenshots/README.md) for the fixture details and regeneration instructions.
 
-| ![image](https://github.com/user-attachments/assets/5c6c44c2-546c-4757-ac09-b1a7a2c5800a) |
+| ![Overview — compliance gauge and volume](docs/screenshots/overview-summary.png) |
+| :---: |
+*Overview tab — DMARC Compliance Overview, KPI cards, Email Volume Over Time*
+
+| ![Overview — disposition, alignment and policy](docs/screenshots/overview-details.png) |
 | :---: |
 *Overview tab — Disposition Distribution, DKIM vs SPF Alignment, DMARC Policy Distribution*
 
-| ![image](https://github.com/user-attachments/assets/94e206c9-bbad-4b45-a573-cc53bff477f2) |
+| ![Sources — classification and table](docs/screenshots/sources-summary.png) |
 | :---: |
 *Sources tab — Source Classification, All Sending Sources*
 
-| ![image](https://github.com/user-attachments/assets/34230b26-89f8-4470-a6b9-d18254c16ab2) |
+| ![Sources — top IPs, forwarding and matrix](docs/screenshots/sources-details.png) |
 | :---: |
 *Sources tab — Top 10 Sending IPs, Forwarded Mail Analysis, DKIM/SPF Alignment Matrix*
 
-| ![image](https://github.com/user-attachments/assets/4c56d1a7-a955-43a1-8aae-95b4f22220ea) |
+| ![Domains — metrics and comparison](docs/screenshots/domains-summary.png) |
 | :---: |
-*Domains tab — Domain Overview, Domain Comparison, Policy Distribution by Domain, Policy Adoption Timeline*
+*Domains tab — Domain Overview, Domain Comparison*
 
-| ![image](https://github.com/user-attachments/assets/ce1b4b0a-8147-4991-be34-f801ce675f26) |
+| ![Domains — comparison and policy charts](docs/screenshots/domains-policies.png) |
+| :---: |
+*Domains tab — Domain Comparison, Policy Distribution by Domain, Policy Adoption Timeline*
+
+| ![Reports — report list](docs/screenshots/reports-list.png) |
 | :---: |
 *Reports tab — Available DMARC Reports*
+
+| ![Reports — IP-level drill-down](docs/screenshots/reports-detail.png) |
+| :---: |
+*Reports tab — selected report with IP-level authentication results*
 
 <!-- footer -->
 ---
