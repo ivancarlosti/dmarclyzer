@@ -5,6 +5,10 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-8080}:8080"
+    # Create .env from the documented template before the first start:
+    #     cp .env.example .env
+    # Recreate the container after editing it (restart does not re-read .env):
+    #     docker compose up -d --force-recreate
     env_file:
       - .env
     extra_hosts:

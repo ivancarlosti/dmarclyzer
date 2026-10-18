@@ -7,9 +7,8 @@ venv/
 build/
 dist/
 
-# Local secrets. NOTE: docker/.env is intentionally tracked as the documented
-# configuration template — replace the placeholder values and never commit
-# real credentials to it.
+# Local secrets. docker/.env holds real credentials and must never be
+# committed; docker/.env.example is the tracked, placeholder-only template.
 .env
 .env.local
 .env.*.local

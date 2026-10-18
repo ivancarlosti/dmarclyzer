@@ -137,7 +137,7 @@ dmarclyzer/
 │       └── styles.py            # Color palette, CSS, Plotly theme
 ├── docker/
 │   ├── docker-compose.yml       # Single-service container stack
-│   └── .env                     # Configuration template
+│   └── .env.example             # Configuration template (copy to .env)
 ├── tests/                       # Security regression tests (stdlib only)
 ├── plans/                       # Dated security audit / remediation plans
 ├── docs/
@@ -163,12 +163,15 @@ dmarclyzer/
 
 ### 1. Configure Environment
 
-Navigate into the `docker` directory and edit the `.env` file with your credentials:
+Navigate into the `docker` directory, copy the template to `.env`, and edit it with your credentials:
 
 ```bash
 cd docker
+cp .env.example .env
 nano .env
 ```
+
+`.env` is git-ignored — keep your real credentials there, and leave `.env.example` with placeholders.
 
 **Required settings:**
 ```env
@@ -308,9 +311,19 @@ KEYCLOAK_CLIENT_ID=dmarclyzer
 KEYCLOAK_CLIENT_SECRET=your_client_secret
 KEYCLOAK_REDIRECT_URI=https://dmarclyzer.example.com/
 KEYCLOAK_EMAIL_ACCOUNT=you@example.com,teammate@example.com
-AUTH_STATE_SECRET=<output of: python -c "import secrets;print(secrets.token_urlsafe(48))">
+# Generate with OpenSSL (no Python required):
+#   openssl rand -hex 32
+AUTH_STATE_SECRET=<output of: openssl rand -hex 32>
 ```
 Authorization-code flow with PKCE (`S256`), a signed short-lived `state` and a nonce. `KEYCLOAK_EMAIL_ACCOUNT` (comma-separated) and `AUTH_STATE_SECRET` are **required**; without them login is refused, because an empty allow-list previously granted every authenticated realm user access. Identities with `email_verified=false` are rejected.
+
+`AUTH_STATE_SECRET` only has to be a stable, unpredictable string. Any of these native commands works (Python is not required):
+
+```bash
+openssl rand -hex 32                          # 64 hex chars (recommended)
+head -c 48 /dev/urandom | base64 | tr -d '\n' # 64 base64 chars
+od -An -tx1 -N32 /dev/urandom | tr -d ' \n'   # 64 hex chars, coreutils only
+```
 
 ---
 
@@ -420,6 +433,20 @@ server {
 
 **Port conflict:**
 - Change `PORT` in `.env` to an available port (e.g., `8081`).
+
+**Login page says "SSO is enabled but not configured correctly" and the log shows `OIDC is enabled but misconfigured: AUTH_STATE_SECRET`:**
+- Since v8.0.0, `AUTH_METHOD=keycloak` requires both `KEYCLOAK_EMAIL_ACCOUNT` and `AUTH_STATE_SECRET`. Add the missing value:
+  ```bash
+  printf '\nAUTH_STATE_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
+  ```
+- Recreate the container so the new environment is loaded — `docker compose restart` does **not** re-read `.env`:
+  ```bash
+  docker compose up -d --force-recreate
+  ```
+- Verify the variable reached the container:
+  ```bash
+  docker compose exec dmarclyzer sh -c 'test -n "$AUTH_STATE_SECRET" && echo set'
+  ```
 
 ---
 

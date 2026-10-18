@@ -154,7 +154,7 @@ OIDC `state`/PKCE protection**, **fail-open SSO authorization**, and
 | `requirements.txt` | Removed `authlib` + `python-dotenv`; pinned patched versions. |
 | `Dockerfile` | Non-root, no compiler toolchain, healthcheck, pinned base. |
 | `docker/docker-compose.yml` | `no-new-privileges`, drop all capabilities, healthcheck. |
-| `docker/.env` | Template entries for the new settings. |
+| `docker/.env.example` | Template entries for the new settings. |
 | `app/.streamlit/config.toml` | **New.** XSRF/CORS/headless/upload limit. |
 | `.gitignore`, `.dockerignore` | **New.** Also stops tracking `__pycache__` bytecode that was previously committed. |
 | `.github/workflows/security.yml` | **New.** pip-audit + unit tests. |
@@ -167,7 +167,7 @@ OIDC `state`/PKCE protection**, **fail-open SSO authorization**, and
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `AUTH_STATE_SECRET` | — (**required** for `keycloak`) | HMAC key for signed OIDC `state` / derived PKCE verifier. Generate with `python -c "import secrets;print(secrets.token_urlsafe(48))"`. Rotating it invalidates in-flight logins only. |
+| `AUTH_STATE_SECRET` | — (**required** for `keycloak`) | HMAC key for signed OIDC `state` / derived PKCE verifier. Generate with `openssl rand -hex 32` (Python is not required). Rotating it invalidates in-flight logins only. |
 | `AUTH_STATE_TTL_SECONDS` | `300` | Maximum age of a signed login state (60–3600). |
 | `KEYCLOAK_EMAIL_ACCOUNT` | — (**required** for `keycloak`) | Comma-separated allow-list of email addresses. |
 | `ALLOW_INSECURE_IDP` | `false` | Allow `http://` issuer/redirect URLs (loopback development only). |
