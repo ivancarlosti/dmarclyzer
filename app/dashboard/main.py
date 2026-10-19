@@ -4,6 +4,7 @@ DMARClyzer Dashboard — Main Entry Point
 Handles sidebar filters, tab navigation, session state,
 and the "no data yet" empty state.
 """
+import json
 import os
 
 import streamlit as st
@@ -86,6 +87,8 @@ def _render_empty_state():
         "No DMARC reports found yet. The fetcher daemon might still be processing, "
         "or your configured IMAP inbox hasn't received any new valid Aggregate XML attachments."
     )
+
+    _render_session_controls()
 
     if "initial_refresh_count" not in st.session_state:
         st.session_state["initial_refresh_count"] = 0
@@ -171,14 +174,37 @@ def _render_sidebar():
         st.rerun()
 
     # ── Session / Sign out ──
-    if (os.environ.get("AUTH_METHOD", "none") or "none").strip().lower() != "none":
-        st.sidebar.divider()
-        signed_in_as = st.session_state.get("auth_email")
-        if signed_in_as:
-            st.sidebar.caption(f"Signed in as {escape_markdown(signed_in_as)}")
-        if st.sidebar.button("🚪 Sign Out", width='stretch'):
-            logout()
-            st.rerun()
+    _render_session_controls()
+
+
+def _render_session_controls():
+    """Render the signed-in identity and the sign-out control in the sidebar."""
+    if (os.environ.get("AUTH_METHOD", "none") or "none").strip().lower() == "none":
+        return
+
+    st.sidebar.divider()
+    signed_in_as = st.session_state.get("auth_email")
+    if signed_in_as:
+        st.sidebar.caption(f"Signed in as {escape_markdown(signed_in_as)}")
+    if st.sidebar.button("🚪 Sign Out", width='stretch'):
+        _sign_out()
+
+
+def _sign_out():
+    """Clear local state and terminate the Keycloak SSO session, if any."""
+    logout_url = logout()
+    if logout_url:
+        # st.html is not iframed and Streamlit executes <script> tags when
+        # unsafe_allow_javascript=True, so this is a real top-level navigation.
+        # Clearing st.session_state alone left the Keycloak SSO cookie valid,
+        # which is why the next login succeeded without a credential prompt.
+        script_url = json.dumps(logout_url).replace("</", "<\\/")
+        st.html(
+            f"<script>window.location.replace({script_url});</script>",
+            unsafe_allow_javascript=True,
+        )
+        st.stop()
+    st.rerun()
 
 
 def _get_filters_from_session():

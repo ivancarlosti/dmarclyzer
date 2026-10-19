@@ -278,7 +278,7 @@ On first launch, the dashboard will auto-refresh up to 3 times while waiting for
 | `KEYCLOAK_REALM` | `keycloak` | — | Keycloak realm name |
 | `KEYCLOAK_CLIENT_ID` | `keycloak` | — | Keycloak client ID |
 | `KEYCLOAK_CLIENT_SECRET` | `keycloak` | — | Keycloak client secret |
-| `KEYCLOAK_REDIRECT_URI` | `keycloak` | — | OAuth2 redirect URI registered for the client |
+| `KEYCLOAK_REDIRECT_URI` | `keycloak` | — | OAuth2 redirect URI registered for the client; also sent as `post_logout_redirect_uri`, so register it under **Valid post logout redirect URIs** too |
 | `KEYCLOAK_EMAIL_ACCOUNT` | `keycloak` | — | Comma-separated allow-list of email addresses (**required**) |
 | `AUTH_STATE_SECRET` | `keycloak` | — | HMAC key for OIDC `state`/PKCE derivation (**required**) |
 | `AUTH_STATE_TTL_SECONDS` | No | `300` | Maximum age of a signed login state (60–3600) |
@@ -317,6 +317,10 @@ AUTH_STATE_SECRET=<output of: openssl rand -hex 32>
 ```
 Authorization-code flow with PKCE (`S256`), a signed short-lived `state` and a nonce. `KEYCLOAK_EMAIL_ACCOUNT` (comma-separated) and `AUTH_STATE_SECRET` are **required**; without them login is refused, because an empty allow-list previously granted every authenticated realm user access. Identities with `email_verified=false` are rejected.
 
+**Signing out.** The **Sign Out** button performs [RP-Initiated Logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html): the browser is sent to `<KEYCLOAK_BASE_URL>/realms/<realm>/protocol/openid-connect/logout` with the stored `id_token_hint`, `client_id` and `post_logout_redirect_uri`, so Keycloak deletes the user session and expires its `KEYCLOAK_IDENTITY` cookie. Without that round-trip the next sign-in succeeds silently from the still-valid SSO cookie, which is why clearing the Streamlit session alone is not a sign-out.
+
+Add `KEYCLOAK_REDIRECT_URI` to the client's **Valid post logout redirect URIs** — or rely on the fallback: when that field is left empty, Keycloak validates `post_logout_redirect_uri` against the client's **Valid redirect URIs** (use `+` to inherit them explicitly, `-` to opt out). Validation happens *before* the session is ended, so if the URI is not accepted you get `400 invalid_redirect_uri` and the SSO session survives.
+
 `AUTH_STATE_SECRET` only has to be a stable, unpredictable string. Any of these native commands works (Python is not required):
 
 ```bash
@@ -333,7 +337,7 @@ Security-relevant behaviour in this release (see [`plans/2026-10-18-security-aud
 
 - **Output encoding** — All DMARC-derived or reverse-DNS-derived values rendered as HTML are escaped (`app/security.py`), preventing stored XSS from malicious reports.
 - **OIDC hardening** — Signed `state`, PKCE, nonce, request timeouts, no redirects, and `trust_env=False` (no `.netrc` credential leakage). Provider error bodies are logged server-side, never shown to the browser.
-- **Fail-closed authentication** — SSO requires an explicit email allow-list; account auth requires configured credentials; reCAPTCHA is enforced when a secret is configured. A "Sign Out" button clears the session.
+- **Fail-closed authentication** — SSO requires an explicit email allow-list; account auth requires configured credentials; reCAPTCHA is enforced when a secret is configured. "Sign Out" clears the local session **and** performs RP-initiated logout at Keycloak, so the SSO cookie cannot silently sign the user back in.
 - **Untrusted input limits** — XML entity expansion is disabled; report strings are truncated to column widths; numbers and timestamps are range-checked; attachments/archives are read through bounded streams (`MAX_ATTACHMENT_MB`, `MAX_XML_MB`, `MAX_ARCHIVE_UNCOMPRESSED_MB`, `MAX_ZIP_ENTRIES`).
 - **IMAP hygiene** — Mailbox names are validated and quoted, and the connection is always closed in a `finally` block.
 - **Database** — DSN built with `URL.create()` (passwords with `@:/` no longer corrupt or leak), optional TLS via `DB_SSL_CA`, pool pre-ping, and a loud warning when the default password is used.
@@ -447,6 +451,15 @@ server {
   ```bash
   docker compose exec dmarclyzer sh -c 'test -n "$AUTH_STATE_SECRET" && echo set'
   ```
+
+**Sign Out returns to the login page, but "Login with Keycloak SSO" signs me straight back in:**
+- Earlier builds only cleared the Streamlit session while the Keycloak SSO cookie stayed alive, so the provider re-authenticated the browser without a prompt. Sign-out now redirects to Keycloak's `/protocol/openid-connect/logout` endpoint — recreate the container after upgrading:
+  ```bash
+  docker compose up -d --force-recreate
+  ```
+- Sessions opened before the upgrade hold no ID token, so sign in once more before signing out; the `id_token_hint` is captured at login.
+- Verify `AUTH_METHOD=keycloak` inside the container — with `AUTH_METHOD=account` there is no provider session to terminate.
+- If Keycloak answers `400 invalid_redirect_uri`, make sure `KEYCLOAK_REDIRECT_URI` is accepted by the client: list it under **Valid redirect URIs** or **Valid post logout redirect URIs**. An empty post-logout field inherits the valid redirect URIs; `-` disables that fallback.
 
 ---
 

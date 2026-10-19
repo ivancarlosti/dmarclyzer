@@ -168,12 +168,46 @@ class OidcExchangeTests(unittest.TestCase):
 
     def test_allowed_email_is_returned_lowercased(self):
         session = self._session(
-            _FakeResponse(payload={"access_token": "token", "token_type": "Bearer"}),
+            _FakeResponse(
+                payload={
+                    "access_token": "token",
+                    "token_type": "Bearer",
+                    "id_token": "id-token-value",
+                }
+            ),
             _FakeResponse(
                 payload={"email": "Allowed@Example.com", "email_verified": True}
             ),
         )
-        self.assertEqual(self._exchange(session), "allowed@example.com")
+        result = self._exchange(session)
+        self.assertEqual(result.email, "allowed@example.com")
+        self.assertEqual(result.id_token, "id-token-value")
+
+    def test_missing_id_token_is_tolerated(self):
+        session = self._session(
+            _FakeResponse(payload={"access_token": "token", "token_type": "Bearer"}),
+            _FakeResponse(
+                payload={"email": "allowed@example.com", "email_verified": True}
+            ),
+        )
+        result = self._exchange(session)
+        self.assertEqual(result.email, "allowed@example.com")
+        self.assertIsNone(result.id_token)
+
+    def test_non_string_id_token_is_ignored(self):
+        session = self._session(
+            _FakeResponse(
+                payload={
+                    "access_token": "token",
+                    "token_type": "Bearer",
+                    "id_token": 12345,
+                }
+            ),
+            _FakeResponse(
+                payload={"email": "allowed@example.com", "email_verified": True}
+            ),
+        )
+        self.assertIsNone(self._exchange(session).id_token)
 
     def test_email_not_on_allow_list_is_rejected(self):
         session = self._session(
@@ -221,6 +255,151 @@ class OidcExchangeTests(unittest.TestCase):
             _FakeResponse(payload={"sub": "abc"}),
         )
         self.assertIsNone(self._exchange(session))
+
+
+class LogoutUrlTests(unittest.TestCase):
+    def test_logout_url_targets_keycloak_endpoint(self):
+        with mock.patch.dict(os.environ, BASE_ENV, clear=True):
+            url = auth.get_keycloak_logout_url("id-token-value")
+
+        self.assertIsNotNone(url)
+        parsed = urlsplit(url)
+        self.assertEqual(parsed.path, "/realms/dmarc/protocol/openid-connect/logout")
+        params = parse_qs(parsed.query)
+        self.assertEqual(params["client_id"], ["dmarclyzer"])
+        self.assertEqual(params["id_token_hint"], ["id-token-value"])
+        self.assertEqual(
+            params["post_logout_redirect_uri"], ["https://dmarc.example.com/"]
+        )
+
+    def test_id_token_hint_is_optional(self):
+        with mock.patch.dict(os.environ, BASE_ENV, clear=True):
+            url = auth.get_keycloak_logout_url()
+
+        self.assertIsNotNone(url)
+        self.assertNotIn("id_token_hint", parse_qs(urlsplit(url).query))
+
+    def test_logout_does_not_require_login_only_settings(self):
+        env = {
+            key: value
+            for key, value in BASE_ENV.items()
+            if key not in {"KEYCLOAK_EMAIL_ACCOUNT", "AUTH_STATE_SECRET"}
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertIsNotNone(auth.get_keycloak_logout_url("id-token-value"))
+
+    def test_unusable_redirect_uri_is_dropped_but_logout_still_works(self):
+        env = dict(BASE_ENV, KEYCLOAK_REDIRECT_URI="http://dmarc.example.com/")
+        with mock.patch.dict(os.environ, env, clear=True):
+            url = auth.get_keycloak_logout_url("id-token-value")
+
+        self.assertIsNotNone(url)
+        params = parse_qs(urlsplit(url).query)
+        self.assertNotIn("post_logout_redirect_uri", params)
+        self.assertEqual(params["id_token_hint"], ["id-token-value"])
+
+    def test_missing_client_id_yields_no_url(self):
+        env = dict(BASE_ENV, KEYCLOAK_CLIENT_ID="")
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertIsNone(auth.get_keycloak_logout_url("id-token-value"))
+
+    def test_insecure_issuer_yields_no_url(self):
+        env = dict(BASE_ENV, KEYCLOAK_BASE_URL="http://sso.example.com")
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertIsNone(auth.get_keycloak_logout_url("id-token-value"))
+
+
+class LogoutTests(unittest.TestCase):
+    @staticmethod
+    def _session_state():
+        return {
+            auth.AUTHENTICATED_KEY: True,
+            auth.EMAIL_SESSION_KEY: "allowed@example.com",
+            auth.ID_TOKEN_SESSION_KEY: "id-token-value",
+            auth.STATE_SESSION_KEY: "signed-state",
+            auth.ATTEMPTS_SESSION_KEY: 2,
+            auth.LOCKED_SESSION_KEY: True,
+            "recaptcha_token": "token",
+            "unrelated": "kept",
+        }
+
+    def test_keycloak_logout_returns_provider_url_and_clears_state(self):
+        session_state = self._session_state()
+        query_params = {"code": "auth-code", "state": "signed-state"}
+        env = dict(BASE_ENV, AUTH_METHOD="keycloak")
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(auth.st, "session_state", session_state),
+            mock.patch.object(auth.st, "query_params", query_params),
+        ):
+            url = auth.logout()
+
+        self.assertIsNotNone(url)
+        params = parse_qs(urlsplit(url).query)
+        self.assertEqual(params["id_token_hint"], ["id-token-value"])
+        self.assertEqual(
+            params["post_logout_redirect_uri"], ["https://dmarc.example.com/"]
+        )
+        self.assertEqual(session_state, {"unrelated": "kept"})
+        self.assertEqual(query_params, {})
+
+    def test_keycloak_logout_without_id_token_still_returns_url(self):
+        session_state = self._session_state()
+        session_state.pop(auth.ID_TOKEN_SESSION_KEY)
+        env = dict(BASE_ENV, AUTH_METHOD="keycloak")
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(auth.st, "session_state", session_state),
+        ):
+            url = auth.logout()
+
+        self.assertIsNotNone(url)
+        self.assertNotIn("id_token_hint", parse_qs(urlsplit(url).query))
+        self.assertNotIn(auth.EMAIL_SESSION_KEY, session_state)
+
+    def test_account_logout_only_clears_state(self):
+        session_state = self._session_state()
+        env = dict(BASE_ENV, AUTH_METHOD="account")
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(auth.st, "session_state", session_state),
+        ):
+            url = auth.logout()
+
+        self.assertIsNone(url)
+        self.assertNotIn(auth.AUTHENTICATED_KEY, session_state)
+        self.assertNotIn(auth.ID_TOKEN_SESSION_KEY, session_state)
+
+
+class KeycloakCallbackTests(unittest.TestCase):
+    def test_id_token_is_stored_in_session_state(self):
+        env = dict(BASE_ENV, AUTH_METHOD="keycloak")
+        with mock.patch.dict(os.environ, env, clear=True):
+            settings = auth._oidc_settings()
+        signed_state = security.sign_state(
+            settings["state_secret"],
+            ttl_seconds=settings["ttl"],
+            nonce="nonce",
+        )
+        query = {"code": "auth-code", "state": signed_state}
+        session_state = {}
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(auth.st, "session_state", session_state),
+            mock.patch.object(auth, "_query_value", side_effect=query.get),
+            mock.patch.object(
+                auth,
+                "_exchange_code_for_email",
+                return_value=auth._LoginResult(
+                    email="allowed@example.com", id_token="id-token-value"
+                ),
+            ),
+        ):
+            self.assertTrue(auth.authenticate_keycloak())
+
+        self.assertIs(session_state[auth.AUTHENTICATED_KEY], True)
+        self.assertEqual(session_state[auth.EMAIL_SESSION_KEY], "allowed@example.com")
+        self.assertEqual(session_state[auth.ID_TOKEN_SESSION_KEY], "id-token-value")
 
 
 if __name__ == "__main__":

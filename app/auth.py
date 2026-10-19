@@ -12,6 +12,7 @@ import logging
 import os
 import secrets
 import urllib.parse
+from typing import NamedTuple
 
 import requests
 import streamlit as st
@@ -37,11 +38,19 @@ RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify"
 
 AUTHENTICATED_KEY = "authenticated"
 EMAIL_SESSION_KEY = "auth_email"
+ID_TOKEN_SESSION_KEY = "auth_id_token"
 STATE_SESSION_KEY = "_oidc_state"
 ATTEMPTS_SESSION_KEY = "_login_attempts"
 LOCKED_SESSION_KEY = "_login_locked"
 
 _SCOPE = "openid email profile"
+
+
+class _LoginResult(NamedTuple):
+    """Verified login identity plus the ID token needed for logout."""
+
+    email: str
+    id_token: str | None = None
 
 
 def _env(name: str, default: str = "") -> str:
@@ -174,8 +183,57 @@ def get_keycloak_url() -> str | None:
     return f"{auth_url}?{urllib.parse.urlencode(params)}"
 
 
-def _exchange_code_for_email(settings: dict, code: str, verifier: str) -> str | None:
-    """Exchange an authorization code and return the verified, allowed email."""
+def get_keycloak_logout_url(id_token: str | None = None) -> str | None:
+    """Build the RP-Initiated Logout URL that ends the Keycloak SSO session.
+
+    ``post_logout_redirect_uri`` is always sent so the browser returns to the
+    dashboard. Keycloak validates it against the client's post-logout redirect
+    URIs (falling back to the valid redirect URIs when that field is empty)
+    **before** it terminates the session, so ``KEYCLOAK_REDIRECT_URI`` must be
+    accepted by the client.
+
+    Only the settings needed to reach the endpoint are required: a user whose
+    session is live must stay able to sign out even if the login allow-list or
+    ``AUTH_STATE_SECRET`` is changed in the meantime. An unusable redirect URI
+    is dropped rather than blocking the sign-out, because terminating the
+    provider session matters more than the landing page.
+    """
+    settings = _oidc_settings()
+    if (
+        not validate_issuer_url(settings["base"], settings["allow_insecure"])
+        or not settings["realm"]
+        or not settings["client_id"]
+    ):
+        logger.warning(
+            "Cannot build a Keycloak logout URL: OIDC configuration is incomplete."
+        )
+        return None
+
+    params = {"client_id": settings["client_id"]}
+    redirect_uri = settings["redirect_uri"]
+    if redirect_uri and validate_redirect_uri(redirect_uri, settings["allow_insecure"]):
+        params["post_logout_redirect_uri"] = redirect_uri
+    else:
+        logger.warning(
+            "KEYCLOAK_REDIRECT_URI is not usable as a post-logout redirect; "
+            "signing out will end on the Keycloak logout page."
+        )
+    if id_token:
+        params["id_token_hint"] = id_token
+
+    logout_endpoint = _endpoint(settings["base"], settings["realm"], "logout")
+    return f"{logout_endpoint}?{urllib.parse.urlencode(params)}"
+
+
+def _exchange_code_for_email(
+    settings: dict, code: str, verifier: str
+) -> _LoginResult | None:
+    """Exchange an authorization code and return the verified, allowed identity.
+
+    The ID token is kept because RP-Initiated Logout needs it as
+    ``id_token_hint``; without it Keycloak cannot reliably identify (and
+    therefore terminate) the browser's SSO session.
+    """
     token_url = _endpoint(settings["base"], settings["realm"], "token")
     userinfo_url = _endpoint(settings["base"], settings["realm"], "userinfo")
     token_data = {
@@ -222,6 +280,12 @@ def _exchange_code_for_email(settings: dict, code: str, verifier: str) -> str | 
                 logger.warning("Token response did not contain a Bearer access token.")
                 return None
 
+            id_token = tokens.get("id_token")
+            if not isinstance(id_token, str) or not id_token.strip():
+                # Public clients and some providers omit it; logout then falls
+                # back to Keycloak's logout confirmation screen.
+                id_token = None
+
             userinfo_response = session.get(
                 userinfo_url,
                 headers={
@@ -264,7 +328,7 @@ def _exchange_code_for_email(settings: dict, code: str, verifier: str) -> str | 
         logger.warning("Rejected login for %r (not in KEYCLOAK_EMAIL_ACCOUNT).", email)
         return None
 
-    return email
+    return _LoginResult(email=email, id_token=id_token)
 
 
 def authenticate_keycloak():
@@ -309,14 +373,16 @@ def authenticate_keycloak():
         except ValueError:
             return _fail("Your sign-in link is invalid. Please sign in again.")
 
-        email = _exchange_code_for_email(settings, str(code), verifier)
-        if not email:
+        result = _exchange_code_for_email(settings, str(code), verifier)
+        if not result:
             return _fail(
                 "Sign-in failed. Please try again or contact your administrator."
             )
 
         st.session_state[AUTHENTICATED_KEY] = True
-        st.session_state[EMAIL_SESSION_KEY] = email
+        st.session_state[EMAIL_SESSION_KEY] = result.email
+        if result.id_token:
+            st.session_state[ID_TOKEN_SESSION_KEY] = result.id_token
         st.session_state.pop(STATE_SESSION_KEY, None)
         _clear_query_params()
         st.rerun()
@@ -443,11 +509,25 @@ def _render_account_login():
     return False
 
 
-def logout():
-    """Clear authentication state and any pending OIDC parameters."""
+def logout() -> str | None:
+    """Clear local authentication state and return the Keycloak logout URL.
+
+    Clearing ``st.session_state`` alone is not a real sign-out: the Keycloak
+    SSO cookie stays valid, so the next authorization request signed the user
+    straight back in. For ``AUTH_METHOD=keycloak`` the returned URL performs
+    RP-Initiated Logout at the provider and must be opened in the browser.
+    """
+    id_token = st.session_state.get(ID_TOKEN_SESSION_KEY)
+    logout_url = None
+    if (_env("AUTH_METHOD", "none") or "none").lower() == "keycloak":
+        logout_url = get_keycloak_logout_url(
+            id_token if isinstance(id_token, str) else None
+        )
+
     for key in (
         AUTHENTICATED_KEY,
         EMAIL_SESSION_KEY,
+        ID_TOKEN_SESSION_KEY,
         STATE_SESSION_KEY,
         ATTEMPTS_SESSION_KEY,
         LOCKED_SESSION_KEY,
@@ -455,6 +535,7 @@ def logout():
     ):
         st.session_state.pop(key, None)
     _clear_query_params()
+    return logout_url
 
 
 def require_auth():
