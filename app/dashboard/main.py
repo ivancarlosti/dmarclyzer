@@ -140,14 +140,10 @@ def _render_sidebar():
     # ── Domains ──
     st.sidebar.divider()
 
-    if "dash_domains" not in st.session_state:
-        st.session_state["dash_domains"] = available_domains
-
-    selected_domains_all = st.sidebar.checkbox("Select All Domains", value=True)
     selected_domains = st.sidebar.multiselect(
         "Domains",
         available_domains,
-        default=available_domains if selected_domains_all else st.session_state.get("dash_domains", []),
+        default=available_domains,
         key="sidebar_domains",
     )
     st.session_state["dash_domains"] = selected_domains
@@ -155,14 +151,10 @@ def _render_sidebar():
     # ── Organizations ──
     st.sidebar.divider()
 
-    if "dash_orgs" not in st.session_state:
-        st.session_state["dash_orgs"] = available_orgs
-
-    selected_orgs_all = st.sidebar.checkbox("Select All Reporter Organizations", value=True)
     selected_orgs = st.sidebar.multiselect(
         "Reporter Organizations",
         available_orgs,
-        default=available_orgs if selected_orgs_all else st.session_state.get("dash_orgs", []),
+        default=available_orgs,
         key="sidebar_orgs",
     )
     st.session_state["dash_orgs"] = selected_orgs
