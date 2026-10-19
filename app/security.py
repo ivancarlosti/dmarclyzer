@@ -21,6 +21,8 @@ from urllib.parse import urlsplit
 
 __all__ = [
     "OversizedPayloadError",
+    "SESSION_TTL_SECONDS_DEFAULT",
+    "SESSION_TTL_SECONDS_MAX",
     "bounded_read",
     "constant_time_equals",
     "derive_pkce_verifier",
@@ -34,11 +36,13 @@ __all__ = [
     "quote_mailbox",
     "safe_int",
     "safe_timestamp",
+    "sign_auth_session",
     "sign_state",
     "truncate",
     "validate_issuer_url",
     "validate_mailbox",
     "validate_redirect_uri",
+    "verify_auth_session",
     "verify_state",
 ]
 
@@ -47,6 +51,11 @@ __all__ = [
 STATE_TTL_SECONDS_DEFAULT = 300
 STATE_TTL_SECONDS_MIN = 60
 STATE_TTL_SECONDS_MAX = 3600
+# Browser sessions restored from the signed auth cookie. The default keeps a
+# dashboard open for a working day; the upper bound stops a stolen cookie from
+# staying usable indefinitely.
+SESSION_TTL_SECONDS_DEFAULT = 8 * 60 * 60
+SESSION_TTL_SECONDS_MAX = 30 * 24 * 60 * 60
 # Tolerated clock skew between the signer and the verifier.
 _CLOCK_SKEW_SECONDS = 60
 # 2100-01-01T00:00:00Z — report timestamps outside this range are nonsense.
@@ -318,6 +327,72 @@ def verify_state(secret: str, state, ttl_seconds: int = STATE_TTL_SECONDS_DEFAUL
     if current - issued_at > max(int(ttl_seconds), 0):
         return None
     return state_nonce
+
+
+def _auth_session_signature(secret: str, audience: str, payload: str) -> bytes:
+    return hmac.new(
+        secret.encode("utf-8"),
+        f"session.{audience}.{payload}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+
+def sign_auth_session(secret: str, identity: str,
+                      ttl_seconds: int = SESSION_TTL_SECONDS_DEFAULT,
+                      now: int | None = None,
+                      audience: str = "session") -> str:
+    """Create a signed, expiring token that keeps a browser session signed in.
+
+    Format: ``<identity-b64>.<issued-at>.<expires-at>.<hmac>``. The token carries
+    no credentials — only the identity and its lifetime — so it can be stored in
+    a cookie without exposing passwords or provider tokens, and it can be
+    validated again after Streamlit has discarded ``session_state``. The
+    ``audience`` is authenticated but not stored, so a token issued for one
+    authentication mode cannot be replayed against another.
+    """
+    if not secret:
+        raise ValueError("an HMAC secret is required to sign a session")
+    identity = str(identity or "").strip().lower()
+    if not identity:
+        raise ValueError("an identity is required to sign a session")
+    issued_at = int(time.time() if now is None else now)
+    expires_at = issued_at + int(ttl_seconds)
+    if expires_at <= issued_at:
+        raise ValueError("session lifetime must be positive")
+    payload = f"{_b64url_encode(identity.encode('utf-8'))}.{issued_at}.{expires_at}"
+    signature = _b64url_encode(_auth_session_signature(secret, audience, payload))
+    return f"{payload}.{signature}"
+
+
+def verify_auth_session(secret: str, token, now: int | None = None,
+                        audience: str = "session") -> str | None:
+    """Validate a signed session token and return its identity (or None)."""
+    if not secret or not token:
+        return None
+    parts = str(token).split(".")
+    if len(parts) != 4:
+        return None
+    identity_raw, issued_raw, expires_raw, signature_raw = parts
+    try:
+        issued_at = int(issued_raw)
+        expires_at = int(expires_raw)
+        provided_signature = _b64url_decode(signature_raw)
+    except (TypeError, ValueError, binascii.Error):
+        return None
+    payload = f"{identity_raw}.{issued_at}.{expires_at}"
+    expected_signature = _auth_session_signature(secret, audience, payload)
+    if not hmac.compare_digest(expected_signature, provided_signature):
+        return None
+    current = int(time.time() if now is None else now)
+    if issued_at > current + _CLOCK_SKEW_SECONDS:
+        return None
+    if expires_at <= current or expires_at <= issued_at:
+        return None
+    try:
+        identity = _b64url_decode(identity_raw).decode("utf-8", "strict")
+    except (TypeError, ValueError, binascii.Error):
+        return None
+    return identity.strip().lower() or None
 
 
 def derive_pkce_verifier(secret: str, state_nonce: str) -> str:

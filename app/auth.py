@@ -8,6 +8,7 @@ the signed ``state`` / derived PKCE verifier are documented in
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import secrets
@@ -18,6 +19,8 @@ import requests
 import streamlit as st
 
 from security import (
+    SESSION_TTL_SECONDS_DEFAULT,
+    SESSION_TTL_SECONDS_MAX,
     STATE_TTL_SECONDS_MAX,
     STATE_TTL_SECONDS_MIN,
     constant_time_equals,
@@ -25,9 +28,11 @@ from security import (
     env_int,
     escape_html,
     pkce_challenge,
+    sign_auth_session,
     sign_state,
     validate_issuer_url,
     validate_redirect_uri,
+    verify_auth_session,
     verify_state,
 )
 
@@ -42,6 +47,17 @@ ID_TOKEN_SESSION_KEY = "auth_id_token"
 STATE_SESSION_KEY = "_oidc_state"
 ATTEMPTS_SESSION_KEY = "_login_attempts"
 LOCKED_SESSION_KEY = "_login_locked"
+
+# Signed browser-session cookie. Streamlit drops ``session_state`` whenever the
+# page is fully reloaded, so the identity is also kept in a cookie that is
+# validated (HMAC + expiry) on the next run.
+SESSION_COOKIE_NAME = "dmarclyzer_auth"
+SESSION_COOKIE_SENT_KEY = "_session_cookie_sent"
+
+# Signing key fallback for AUTH_METHOD=account. Generated once per process, so
+# sessions then survive refreshes but not container restarts; set
+# AUTH_STATE_SECRET for a key that outlives the process.
+_EPHEMERAL_SESSION_SECRET = secrets.token_urlsafe(32)
 
 _SCOPE = "openid email profile"
 
@@ -78,6 +94,142 @@ def _clear_query_params():
         st.query_params.clear()
     except Exception:  # pragma: no cover - defensive, Streamlit internal API
         logger.debug("Unable to clear query parameters", exc_info=True)
+
+
+def _session_ttl_seconds() -> int:
+    """Return the signed-session lifetime; 0 disables persistent sessions."""
+    return env_int(
+        "AUTH_SESSION_TTL_SECONDS",
+        SESSION_TTL_SECONDS_DEFAULT,
+        minimum=0,
+        maximum=SESSION_TTL_SECONDS_MAX,
+    )
+
+
+def _session_secret() -> str:
+    """Return the HMAC key used to sign the session cookie."""
+    return _env("AUTH_STATE_SECRET") or _EPHEMERAL_SESSION_SECRET
+
+
+def _auth_method() -> str:
+    return (_env("AUTH_METHOD", "none") or "none").lower()
+
+
+def _session_audience(auth_method: str) -> str:
+    """Bind a cookie to one auth mode, so switching modes cannot reuse it."""
+    return f"dmarclyzer-{auth_method}"
+
+
+def _request_cookies():
+    """Return the cookies sent with the initial request (or an empty mapping)."""
+    try:
+        return st.context.cookies
+    except Exception:  # pragma: no cover - defensive, Streamlit internal API
+        logger.debug("Unable to read request cookies", exc_info=True)
+        return {}
+
+
+def _cookie_is_secure() -> bool:
+    """Best-effort HTTPS detection for the ``Secure`` cookie attribute.
+
+    Browsers always send ``Origin`` on the WebSocket handshake, so it reflects
+    the scheme the user actually used; ``X-Forwarded-Proto`` covers proxies that
+    rewrite it. Without either header we require TLS unless the local
+    development escape hatch is enabled.
+    """
+    try:
+        headers = st.context.headers
+        proto = headers.get("x-forwarded-proto")
+        if proto:
+            return proto.split(",")[0].strip().lower() == "https"
+        origin = headers.get("origin")
+        if origin:
+            return origin.strip().lower().startswith("https://")
+    except Exception:  # pragma: no cover - defensive, Streamlit internal API
+        logger.debug("Unable to read request headers", exc_info=True)
+    return not _env_flag("ALLOW_INSECURE_IDP")
+
+
+def _cookie_attributes(max_age: int) -> str:
+    attributes = f"; Path=/; Max-Age={int(max_age)}; SameSite=Lax"
+    if _cookie_is_secure():
+        attributes += "; Secure"
+    return attributes
+
+
+def _run_javascript(statement: str):
+    """Execute *statement* on the page; no-op outside a Streamlit script run."""
+    html = getattr(st, "html", None)
+    if html is None:  # pragma: no cover - test stub / bare mode
+        return
+    html(f"<script>{statement}</script>", unsafe_allow_javascript=True)
+
+
+def session_cookie_clear_js() -> str:
+    """Return JavaScript that expires the signed session cookie.
+
+    The caller must run it in the same ``<script>`` as any redirect: a separate
+    render can be skipped when the page unloads first.
+    """
+    attributes = _cookie_attributes(0).lstrip("; ")
+    cookie = f"{SESSION_COOKIE_NAME}=; {attributes}"
+    return f"document.cookie = {json.dumps(cookie)};"
+
+
+def _write_session_cookie(identity: str) -> bool:
+    """Ask the browser to store a freshly signed session cookie."""
+    ttl = _session_ttl_seconds()
+    if ttl <= 0:
+        return False
+    token = sign_auth_session(
+        _session_secret(),
+        identity,
+        ttl_seconds=ttl,
+        audience=_session_audience(_auth_method()),
+    )
+    cookie = f"{SESSION_COOKIE_NAME}={token}{_cookie_attributes(ttl)}"
+    _run_javascript(f"document.cookie = {json.dumps(cookie)};")
+    st.session_state[SESSION_COOKIE_SENT_KEY] = True
+    return True
+
+
+def _ensure_session_cookie():
+    """Issue the session cookie once per Streamlit session (after login/refresh)."""
+    if st.session_state.get(SESSION_COOKIE_SENT_KEY):
+        return
+    identity = st.session_state.get(EMAIL_SESSION_KEY)
+    if isinstance(identity, str) and identity:
+        _write_session_cookie(identity)
+
+
+def _restore_session_from_cookie(auth_method: str) -> bool:
+    """Re-authenticate from the signed cookie after a page reload."""
+    if _session_ttl_seconds() <= 0:
+        # Persistence was disabled after this cookie was issued; honour the
+        # current configuration instead of the cookie's embedded lifetime.
+        return False
+    token = _request_cookies().get(SESSION_COOKIE_NAME)
+    if not token:
+        return False
+    identity = verify_auth_session(
+        _session_secret(), token, audience=_session_audience(auth_method)
+    )
+    if not identity:
+        logger.info("Ignoring an expired or invalid session cookie.")
+        return False
+    if auth_method == "keycloak" and identity not in _oidc_settings()["allowed_emails"]:
+        # The allow-list stays authoritative: a cookie must not outlive a
+        # removal from KEYCLOAK_EMAIL_ACCOUNT.
+        logger.warning(
+            "Rejected a restored session for %r (not in KEYCLOAK_EMAIL_ACCOUNT).",
+            identity,
+        )
+        return False
+    st.session_state[AUTHENTICATED_KEY] = True
+    st.session_state[EMAIL_SESSION_KEY] = identity
+    # Force a fresh cookie so the lifetime renews on every full page load.
+    st.session_state.pop(SESSION_COOKIE_SENT_KEY, None)
+    return True
 
 
 def _fail(message: str, detail: str | None = None):
@@ -488,6 +640,10 @@ def _render_account_login():
                         st.error("reCAPTCHA verification failed. Please try again.")
                         return False
                     st.session_state[AUTHENTICATED_KEY] = True
+                    # There is no OIDC email in account mode; the username is the
+                    # persisted identity (used by the session cookie and the
+                    # "Signed in as" caption).
+                    st.session_state[EMAIL_SESSION_KEY] = configured_login
                     st.session_state[ATTEMPTS_SESSION_KEY] = 0
                     st.rerun()
                 else:
@@ -531,6 +687,7 @@ def logout() -> str | None:
         STATE_SESSION_KEY,
         ATTEMPTS_SESSION_KEY,
         LOCKED_SESSION_KEY,
+        SESSION_COOKIE_SENT_KEY,
         "recaptcha_token",
     ):
         st.session_state.pop(key, None)
@@ -545,6 +702,21 @@ def require_auth():
         return True
 
     if st.session_state.get(AUTHENTICATED_KEY, False):
+        # Re-issue the cookie after a login (or a restore) so a browser refresh
+        # can rebuild the session. Runs before any rerun that could discard the
+        # injected script.
+        _ensure_session_cookie()
+        return True
+
+    # A provider redirect must be processed even when an older session cookie is
+    # still present, otherwise the callback would be silently ignored.
+    if auth_method == "keycloak" and (_query_value("code") or _query_value("error")):
+        return authenticate_keycloak()
+
+    # Streamlit discards session_state on a full page reload; the signed cookie
+    # is what keeps the user signed in across a browser refresh.
+    if _restore_session_from_cookie(auth_method):
+        _ensure_session_cookie()
         return True
 
     # We want to clear whitespace to make it look clean like the main app

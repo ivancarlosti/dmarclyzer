@@ -75,6 +75,8 @@ Three auth modes configurable via environment variable:
 | `account` | Username/password login, constant-time comparison, per-session lockout, optional server-verified reCAPTCHA |
 | `keycloak` | OpenID Connect authorization-code flow with PKCE, signed `state`, and a required email allow-list |
 
+Sign-ins survive browser refreshes through a signed, expiring cookie (`AUTH_SESSION_TTL_SECONDS`, default 8 hours); signing out expires it.
+
 ### 🌐 Reverse Proxy Ready
 - Configurable `PORT` and `DOMAIN` environment variables for seamless integration behind Nginx, Traefik, Caddy, or any reverse proxy.
 - Internal container port always `8080`.
@@ -280,8 +282,9 @@ On first launch, the dashboard will auto-refresh up to 3 times while waiting for
 | `KEYCLOAK_CLIENT_SECRET` | `keycloak` | — | Keycloak client secret |
 | `KEYCLOAK_REDIRECT_URI` | `keycloak` | — | OAuth2 redirect URI registered for the client; also sent as `post_logout_redirect_uri`, so register it under **Valid post logout redirect URIs** too |
 | `KEYCLOAK_EMAIL_ACCOUNT` | `keycloak` | — | Comma-separated allow-list of email addresses (**required**) |
-| `AUTH_STATE_SECRET` | `keycloak` | — | HMAC key for OIDC `state`/PKCE derivation (**required**) |
+| `AUTH_STATE_SECRET` | `keycloak` | — | HMAC key for OIDC `state`/PKCE derivation and the signed session cookie (**required** for `keycloak`; recommended for `account`) |
 | `AUTH_STATE_TTL_SECONDS` | No | `300` | Maximum age of a signed login state (60–3600) |
+| `AUTH_SESSION_TTL_SECONDS` | No | `28800` | Signed browser-session lifetime in seconds, so a refresh does not require signing in again (`0` disables persistence; clamped to 30 days) |
 | `ALLOW_INSECURE_IDP` | No | `false` | Allow `http://` IdP/redirect URLs (local development only) |
 
 ---
@@ -329,6 +332,17 @@ head -c 48 /dev/urandom | base64 | tr -d '\n' # 64 base64 chars
 od -An -tx1 -N32 /dev/urandom | tr -d ' \n'   # 64 hex chars, coreutils only
 ```
 
+### Staying Signed In Across Refreshes
+
+Streamlit discards `st.session_state` on every full page reload, so without extra state a browser refresh used to send you back to the login page. The dashboard now keeps the identity in a signed, expiring cookie (`dmarclyzer_auth`):
+
+- After a successful sign-in (account or Keycloak) the browser stores an HMAC-signed token containing only the identity (email address or account username), its auth mode and its expiry — never a password or an OIDC token. The signature uses `AUTH_STATE_SECRET` (an ephemeral per-process key is used when it is empty).
+- On the next request `st.context.cookies` is read before rendering, the signature, auth mode and expiry are verified, and the session is restored. Expiry defaults to 8 hours (`AUTH_SESSION_TTL_SECONDS`) and is renewed on each full page load; set it to `0` to require signing in after every refresh. A cookie minted for one `AUTH_METHOD` is rejected by the other, so switching modes never inherits a session.
+- For `AUTH_METHOD=keycloak` the restored email is re-checked against `KEYCLOAK_EMAIL_ACCOUNT`, so removing someone from the allow-list revokes their persisted session even before the cookie expires.
+- **Sign Out** expires the cookie in the same script that performs the RP-initiated logout (or reloads for account auth), so signing out is durable — a refresh afterwards stays signed out.
+
+The cookie is sent with `Secure` when the app is reached over HTTPS (detected from `X-Forwarded-Proto` or the WebSocket `Origin`). It is `SameSite=Lax` and not `HttpOnly`, because Streamlit has no API to set response headers.
+
 ---
 
 ## Security
@@ -338,13 +352,14 @@ Security-relevant behaviour in this release (see [`plans/2026-10-18-security-aud
 - **Output encoding** — All DMARC-derived or reverse-DNS-derived values rendered as HTML are escaped (`app/security.py`), preventing stored XSS from malicious reports.
 - **OIDC hardening** — Signed `state`, PKCE, nonce, request timeouts, no redirects, and `trust_env=False` (no `.netrc` credential leakage). Provider error bodies are logged server-side, never shown to the browser.
 - **Fail-closed authentication** — SSO requires an explicit email allow-list; account auth requires configured credentials; reCAPTCHA is enforced when a secret is configured. "Sign Out" clears the local session **and** performs RP-initiated logout at Keycloak, so the SSO cookie cannot silently sign the user back in.
+- **Session continuity** — Refreshes are survived via an HMAC-signed, expiring cookie that holds only the identity (email or account username) and timestamps (`AUTH_SESSION_TTL_SECONDS`, default 8 h, `0` disables). The cookie is bound to the auth mode, sign-out expires it, Keycloak allow-list changes are re-checked on every restore, and a tampered or expired token is ignored.
 - **Untrusted input limits** — XML entity expansion is disabled; report strings are truncated to column widths; numbers and timestamps are range-checked; attachments/archives are read through bounded streams (`MAX_ATTACHMENT_MB`, `MAX_XML_MB`, `MAX_ARCHIVE_UNCOMPRESSED_MB`, `MAX_ZIP_ENTRIES`).
 - **IMAP hygiene** — Mailbox names are validated and quoted, and the connection is always closed in a `finally` block.
 - **Database** — DSN built with `URL.create()` (passwords with `@:/` no longer corrupt or leak), optional TLS via `DB_SSL_CA`, pool pre-ping, and a loud warning when the default password is used.
 - **Container** — Runs as unprivileged uid 10001 with no build toolchain, `no-new-privileges`, all capabilities dropped, and a healthcheck.
 - **Supply chain** — `authlib` and `python-dotenv` removed (unused, vulnerable pins); all dependencies pinned to patched releases; `pip-audit` and the unit tests run in CI (`.github/workflows/security.yml`).
 
-> **Residual risk:** Streamlit does not expose server-side session cookies, so the OIDC `state` is verified through an HMAC-signed token rather than a browser-bound cookie, and the account-login lockout is per browser session (clearing the session cookie resets it). For internet-facing deployments, terminate authentication at an authenticating reverse proxy (oauth2-proxy, Traefik forward-auth, Authelia) with rate limiting, and keep `AUTH_METHOD=none` only inside the trusted network. The container serves plain HTTP on `8080`; publish it over HTTPS.
+> **Residual risk:** Streamlit does not expose server-side session cookies, so the OIDC `state` is verified through an HMAC-signed token rather than a browser-bound cookie, and the account-login lockout is per browser session (clearing the session cookie resets it). Login persistence uses a stateless cookie: it is not `HttpOnly` and there is no server-side revocation list, so a stolen cookie stays valid until it expires (`AUTH_SESSION_TTL_SECONDS`) — keep that value short and rotate `AUTH_STATE_SECRET` to invalidate every issued cookie at once. For internet-facing deployments, terminate authentication at an authenticating reverse proxy (oauth2-proxy, Traefik forward-auth, Authelia) with rate limiting, and keep `AUTH_METHOD=none` only inside the trusted network. The container serves plain HTTP on `8080`; publish it over HTTPS.
 
 Run the security checks locally:
 
@@ -451,6 +466,12 @@ server {
   ```bash
   docker compose exec dmarclyzer sh -c 'test -n "$AUTH_STATE_SECRET" && echo set'
   ```
+
+**Every browser refresh sends me back to the login page:**
+- The signed-in session is now kept in the `dmarclyzer_auth` cookie for `AUTH_SESSION_TTL_SECONDS` (default 8 hours). If that variable is `0`, persistence is deliberately disabled.
+- The cookie gets the `Secure` attribute when the app is reached over HTTPS. Behind a proxy, forward the original scheme (`X-Forwarded-Proto: https`) or make sure the browser's `Origin` header reaches Streamlit as `https://…`; otherwise the browser silently drops the cookie. For plain-HTTP local development, set `ALLOW_INSECURE_IDP=true` (or use HTTPS).
+- With `AUTH_METHOD=account`, set a stable `AUTH_STATE_SECRET`. Without it the signing key is generated per process, so sessions survive refreshes but not container restarts.
+- Clearing site cookies, blocking cookies for the site, or a reverse proxy that strips the `Cookie` header also ends persistence.
 
 **Sign Out returns to the login page, but "Login with Keycloak SSO" signs me straight back in:**
 - Earlier builds only cleared the Streamlit session while the Keycloak SSO cookie stayed alive, so the provider re-authenticated the browser without a prompt. Sign-out now redirects to Keycloak's `/protocol/openid-connect/logout` endpoint — recreate the container after upgrading:

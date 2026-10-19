@@ -28,6 +28,19 @@ streamlit_stub.title = lambda *args, **kwargs: None
 streamlit_stub.caption = lambda *args, **kwargs: None
 streamlit_stub.rerun = lambda *args, **kwargs: None
 streamlit_stub.columns = lambda spec: []
+streamlit_stub.stop = lambda *args, **kwargs: None
+streamlit_stub.html = lambda *args, **kwargs: None
+
+
+class _FakeContext:
+    """Minimal stand-in for ``st.context`` (cookies/headers from the handshake)."""
+
+    def __init__(self, cookies=None, headers=None):
+        self.cookies = dict(cookies or {})
+        self.headers = dict(headers or {})
+
+
+streamlit_stub.context = _FakeContext()
 sys.modules.setdefault("streamlit", streamlit_stub)
 
 # ── Minimal requests stub for CI environments without dependencies ─────────
@@ -400,6 +413,186 @@ class KeycloakCallbackTests(unittest.TestCase):
         self.assertIs(session_state[auth.AUTHENTICATED_KEY], True)
         self.assertEqual(session_state[auth.EMAIL_SESSION_KEY], "allowed@example.com")
         self.assertEqual(session_state[auth.ID_TOKEN_SESSION_KEY], "id-token-value")
+
+
+class SessionCookieTests(unittest.TestCase):
+    """The signed cookie keeps a session alive across full page reloads."""
+
+    @staticmethod
+    def _cookies(email="allowed@example.com", ttl=60, now=None, auth_method="account"):
+        token = security.sign_auth_session(
+            BASE_ENV["AUTH_STATE_SECRET"],
+            email,
+            ttl_seconds=ttl,
+            now=now,
+            audience=auth._session_audience(auth_method),
+        )
+        return {auth.SESSION_COOKIE_NAME: token}
+
+    def _run(self, env, cookies, session_state=None, **patches):
+        session_state = {} if session_state is None else session_state
+        context = _FakeContext(cookies=cookies)
+        stack = (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(auth.st, "session_state", session_state),
+            mock.patch.object(auth.st, "context", context),
+        )
+        with stack[0], stack[1], stack[2], mock.patch.object(
+            auth, "_run_javascript"
+        ) as run_js:
+            for name, patcher in patches.items():
+                patcher.start()
+                self.addCleanup(patcher.stop)
+            return auth.require_auth(), session_state, run_js
+
+    def test_valid_cookie_restores_an_account_session(self):
+        env = dict(BASE_ENV, AUTH_METHOD="account")
+        allowed, session_state, run_js = self._run(env, self._cookies())
+
+        self.assertTrue(allowed)
+        self.assertIs(session_state[auth.AUTHENTICATED_KEY], True)
+        self.assertEqual(session_state[auth.EMAIL_SESSION_KEY], "allowed@example.com")
+        # The restored session renews the cookie for the next refresh.
+        run_js.assert_called_once()
+        self.assertIn(auth.SESSION_COOKIE_NAME, run_js.call_args.args[0])
+
+    def test_valid_cookie_restores_a_keycloak_session(self):
+        env = dict(BASE_ENV, AUTH_METHOD="keycloak")
+        allowed, session_state, _ = self._run(
+            env, self._cookies(auth_method="keycloak")
+        )
+
+        self.assertTrue(allowed)
+        self.assertEqual(session_state[auth.EMAIL_SESSION_KEY], "allowed@example.com")
+
+    def test_cookie_is_bound_to_its_auth_method(self):
+        env = dict(BASE_ENV, AUTH_METHOD="account")
+        allowed, session_state, _ = self._run(
+            env,
+            self._cookies(auth_method="keycloak"),
+            _render_account_login=mock.patch.object(
+                auth, "_render_account_login", return_value=False
+            ),
+        )
+
+        self.assertFalse(allowed)
+        self.assertNotIn(auth.AUTHENTICATED_KEY, session_state)
+
+    def test_cookie_for_a_removed_email_is_rejected(self):
+        env = dict(BASE_ENV, AUTH_METHOD="keycloak")
+        allowed, session_state, _ = self._run(
+            env,
+            self._cookies("revoked@example.com", auth_method="keycloak"),
+            get_keycloak_url=mock.patch.object(auth, "get_keycloak_url", return_value=None),
+        )
+
+        self.assertFalse(allowed)
+        self.assertNotIn(auth.AUTHENTICATED_KEY, session_state)
+
+    def test_expired_cookie_is_rejected(self):
+        env = dict(BASE_ENV, AUTH_METHOD="account")
+        allowed, session_state, _ = self._run(
+            env,
+            self._cookies(ttl=60, now=0),
+            _render_account_login=mock.patch.object(
+                auth, "_render_account_login", return_value=False
+            ),
+        )
+
+        self.assertFalse(allowed)
+        self.assertNotIn(auth.AUTHENTICATED_KEY, session_state)
+
+    def test_tampered_cookie_is_rejected(self):
+        env = dict(BASE_ENV, AUTH_METHOD="account")
+        token = security.sign_auth_session(
+            "a-different-secret", "allowed@example.com", ttl_seconds=60
+        )
+        allowed, session_state, _ = self._run(
+            env,
+            {auth.SESSION_COOKIE_NAME: token},
+            _render_account_login=mock.patch.object(
+                auth, "_render_account_login", return_value=False
+            ),
+        )
+
+        self.assertFalse(allowed)
+        self.assertNotIn(auth.AUTHENTICATED_KEY, session_state)
+
+    def test_provider_callback_wins_over_a_stale_cookie(self):
+        env = dict(BASE_ENV, AUTH_METHOD="keycloak")
+        allowed, session_state, _ = self._run(
+            env,
+            self._cookies(auth_method="keycloak"),
+            _query_value=mock.patch.object(
+                auth, "_query_value", side_effect=lambda name: "auth-code" if name == "code" else None
+            ),
+            authenticate_keycloak=mock.patch.object(
+                auth, "authenticate_keycloak", return_value=False
+            ),
+        )
+
+        self.assertFalse(allowed)
+        self.assertNotIn(auth.AUTHENTICATED_KEY, session_state)
+
+    def test_persistence_can_be_disabled(self):
+        env = dict(BASE_ENV, AUTH_METHOD="account", AUTH_SESSION_TTL_SECONDS="0")
+        session_state = {
+            auth.AUTHENTICATED_KEY: True,
+            auth.EMAIL_SESSION_KEY: "allowed@example.com",
+        }
+        context = _FakeContext()
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(auth.st, "session_state", session_state),
+            mock.patch.object(auth.st, "context", context),
+            mock.patch.object(auth, "_run_javascript") as run_js,
+        ):
+            self.assertTrue(auth.require_auth())
+
+        run_js.assert_not_called()
+        self.assertNotIn(auth.SESSION_COOKIE_SENT_KEY, session_state)
+
+    def test_cookie_is_ignored_when_persistence_is_disabled(self):
+        env = dict(BASE_ENV, AUTH_METHOD="account", AUTH_SESSION_TTL_SECONDS="0")
+        allowed, session_state, _ = self._run(
+            env,
+            self._cookies(),
+            _render_account_login=mock.patch.object(
+                auth, "_render_account_login", return_value=False
+            ),
+        )
+
+        self.assertFalse(allowed)
+        self.assertNotIn(auth.AUTHENTICATED_KEY, session_state)
+
+    def test_clear_script_expires_the_cookie(self):
+        env = {"ALLOW_INSECURE_IDP": "true"}
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(auth.st, "context", _FakeContext()),
+        ):
+            script = auth.session_cookie_clear_js()
+
+        self.assertIn(auth.SESSION_COOKIE_NAME, script)
+        self.assertIn("Max-Age=0", script)
+        self.assertIn("Path=/", script)
+        self.assertNotIn("Secure", script)
+
+    def test_secure_attribute_follows_the_request_scheme(self):
+        cases = [
+            ({"origin": "https://dmarc.example.com"}, True),
+            ({"origin": "http://localhost:8501"}, False),
+            ({"x-forwarded-proto": "https, http"}, True),
+            ({"x-forwarded-proto": "http"}, False),
+        ]
+        for headers, expected in cases:
+            context = _FakeContext(headers=headers)
+            with (
+                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.object(auth.st, "context", context),
+            ):
+                script = auth.session_cookie_clear_js()
+            self.assertEqual("Secure" in script, expected, repr(headers))
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import sessionmaker
 
 from models import get_engine, Report
-from auth import require_auth, logout
+from auth import require_auth, logout, session_cookie_clear_js
 from security import escape_markdown
 
 from dashboard.styles import CUSTOM_CSS
@@ -141,8 +141,6 @@ def _render_sidebar():
         st.stop()
 
     # ── Domains ──
-    st.sidebar.divider()
-
     selected_domains = st.sidebar.multiselect(
         "Domains",
         available_domains,
@@ -152,8 +150,6 @@ def _render_sidebar():
     st.session_state["dash_domains"] = selected_domains
 
     # ── Organizations ──
-    st.sidebar.divider()
-
     selected_orgs = st.sidebar.multiselect(
         "Reporter Organizations",
         available_orgs,
@@ -168,7 +164,6 @@ def _render_sidebar():
         st.stop()
 
     # ── Refresh ──
-    st.sidebar.divider()
     if st.sidebar.button("🔄 Refresh Data", width='stretch'):
         st.cache_data.clear()
         st.rerun()
@@ -182,7 +177,6 @@ def _render_session_controls():
     if (os.environ.get("AUTH_METHOD", "none") or "none").strip().lower() == "none":
         return
 
-    st.sidebar.divider()
     signed_in_as = st.session_state.get("auth_email")
     if signed_in_as:
         st.sidebar.caption(f"Signed in as {escape_markdown(signed_in_as)}")
@@ -191,20 +185,26 @@ def _render_session_controls():
 
 
 def _sign_out():
-    """Clear local state and terminate the Keycloak SSO session, if any."""
+    """Expire the session cookie and terminate the Keycloak SSO session, if any."""
     logout_url = logout()
+    statements = [session_cookie_clear_js()]
     if logout_url:
         # st.html is not iframed and Streamlit executes <script> tags when
         # unsafe_allow_javascript=True, so this is a real top-level navigation.
         # Clearing st.session_state alone left the Keycloak SSO cookie valid,
         # which is why the next login succeeded without a credential prompt.
+        # The cookie is expired and the redirect issued in one script so the
+        # navigation cannot cancel the cookie deletion.
         script_url = json.dumps(logout_url).replace("</", "<\\/")
-        st.html(
-            f"<script>window.location.replace({script_url});</script>",
-            unsafe_allow_javascript=True,
-        )
-        st.stop()
-    st.rerun()
+        statements.append(f"window.location.replace({script_url});")
+    else:
+        # Account auth has no provider session to end: reload into a clean one.
+        statements.append("window.location.replace(window.location.pathname);")
+    st.html(
+        f"<script>{''.join(statements)}</script>",
+        unsafe_allow_javascript=True,
+    )
+    st.stop()
 
 
 def _get_filters_from_session():

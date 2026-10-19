@@ -75,9 +75,14 @@ CUSTOM_CSS = """
     
     /* Sidebar */
     section[data-testid="stSidebar"] .block-container {
-        padding-top: 2rem !important;
+        padding-top: 1rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
+    }
+    /* Compact vertical rhythm — the sidebar only holds filters, actions and
+       the session controls, so the default 1rem gap wastes space. */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0.6rem;
     }
     
     /* Metric Cards */

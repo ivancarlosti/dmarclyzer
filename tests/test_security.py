@@ -256,5 +256,69 @@ class BoundedReadTests(unittest.TestCase):
             security.bounded_read(io.BytesIO(b""), 0)
 
 
+class AuthSessionTests(unittest.TestCase):
+    SECRET = "session-signing-secret"
+
+    def test_round_trip_returns_a_normalized_identity(self):
+        token = security.sign_auth_session(
+            self.SECRET, "Allowed@Example.com", ttl_seconds=60
+        )
+        self.assertEqual(security.verify_auth_session(self.SECRET, token), "allowed@example.com")
+
+    def test_token_does_not_leak_the_raw_identity(self):
+        token = security.sign_auth_session(self.SECRET, "allowed@example.com", ttl_seconds=60)
+        self.assertNotIn("allowed@example.com", token)
+        self.assertNotIn("@", token)
+
+    def test_expired_token_is_rejected(self):
+        token = security.sign_auth_session(
+            self.SECRET, "a@example.com", ttl_seconds=60, now=1000
+        )
+        self.assertEqual(security.verify_auth_session(self.SECRET, token, now=1059), "a@example.com")
+        self.assertIsNone(security.verify_auth_session(self.SECRET, token, now=1060))
+
+    def test_future_dated_token_is_rejected(self):
+        token = security.sign_auth_session(
+            self.SECRET, "a@example.com", ttl_seconds=60, now=1000
+        )
+        self.assertIsNone(security.verify_auth_session(self.SECRET, token, now=1000 - 120))
+
+    def test_tampered_expiry_is_rejected(self):
+        token = security.sign_auth_session(self.SECRET, "a@example.com", ttl_seconds=60)
+        identity, issued_at, expires_at, signature = token.split(".")
+        forged = ".".join([identity, issued_at, str(int(expires_at) + 86400), signature])
+        self.assertIsNone(security.verify_auth_session(self.SECRET, forged))
+
+    def test_wrong_secret_is_rejected(self):
+        token = security.sign_auth_session(self.SECRET, "a@example.com", ttl_seconds=60)
+        self.assertIsNone(security.verify_auth_session("another-secret", token))
+
+    def test_audience_is_authenticated(self):
+        token = security.sign_auth_session(
+            self.SECRET, "a@example.com", ttl_seconds=60, audience="account"
+        )
+        self.assertIsNone(
+            security.verify_auth_session(self.SECRET, token, audience="keycloak")
+        )
+        self.assertEqual(
+            security.verify_auth_session(self.SECRET, token, audience="account"),
+            "a@example.com",
+        )
+
+    def test_malformed_tokens_are_rejected(self):
+        for value in (None, "", "abc", "a.b.c", "a.b.c.d.e", "!!!.1.2.3.4"):
+            self.assertIsNone(
+                security.verify_auth_session(self.SECRET, value), repr(value)
+            )
+
+    def test_signing_requires_a_secret_identity_and_lifetime(self):
+        with self.assertRaises(ValueError):
+            security.sign_auth_session("", "a@example.com")
+        with self.assertRaises(ValueError):
+            security.sign_auth_session(self.SECRET, "   ")
+        with self.assertRaises(ValueError):
+            security.sign_auth_session(self.SECRET, "a@example.com", ttl_seconds=0)
+
+
 if __name__ == "__main__":
     unittest.main()
