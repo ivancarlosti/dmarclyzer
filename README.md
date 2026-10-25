@@ -377,7 +377,7 @@ Please report vulnerabilities privately via the repository's Security tab rather
 The image installs its Python dependencies at build time and runs no package manager afterwards, so the `certifi` CA bundle and every other library keep the version they were built with. A published image therefore cannot pick up a CA-bundle or library fix — including `certifi` rebuilds for revoked roots — without being rebuilt:
 
 - **Release builds** — `.github/workflows/build.yml` rebuilds and pushes `ghcr.io/ivancarlosti/dmarclyzer` whenever a release is published, so a `fix(deps): …` commit that bumps a pin ships with it.
-- **Monthly rebuild** — the same workflow also runs on a monthly schedule against the latest release tag with a pulled base image and no build cache, refreshing the base image and every transitive dependency even when no code changed.
+- **Manual dispatch** — the same workflow can also be run by hand (`workflow_dispatch`) with a required `version` input (the tag to build, for example `v1.2.3`).
 - **Consuming a rebuild** — a restart does not replace a cached image: run `docker compose pull && docker compose up -d` (or `docker pull` followed by `docker compose up -d --force-recreate`) to actually pick up the new layers.
 
 ---
