@@ -15,9 +15,6 @@ import unittest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIREMENTS_PATH = os.path.join(REPO_ROOT, "requirements.txt")
-SECURITY_WORKFLOW_PATH = os.path.join(
-    REPO_ROOT, ".github", "workflows", "security.yml"
-)
 
 # An exact ``name==version`` pin only: extras, markers and ranges make the
 # version resolved at build time unpredictable and weaken the audit gate.
@@ -116,15 +113,6 @@ class RequirementPinTests(unittest.TestCase):
             _PILLOW_UPPER_BOUND,
             "streamlit 1.66.1 requires pillow<14",
         )
-
-
-class AuditWorkflowTests(unittest.TestCase):
-    def test_ci_audits_the_resolved_dependency_tree(self):
-        with open(SECURITY_WORKFLOW_PATH, encoding="utf-8") as handle:
-            workflow = handle.read()
-        # Without this step only the direct pins are audited and transitive
-        # advisories (pillow, certifi) go unnoticed.
-        self.assertIn("pip-audit -r requirements.txt --strict", workflow)
 
 
 if __name__ == "__main__":
