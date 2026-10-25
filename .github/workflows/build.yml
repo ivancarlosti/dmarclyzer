@@ -3,11 +3,6 @@ name: 🐳 Build Artifacts
 on:
   release:
     types: [published]
-  schedule:
-    # Monthly: rebuild the latest release so the published image picks up
-    # base-image and transitive-dependency fixes (certifi CA bundles, OS
-    # packages) even when no code changed.
-    - cron: "0 4 1 * *"
   workflow_dispatch:
     inputs:
       version:
@@ -25,26 +20,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout source (release tag / default branch)
+      - name: 📥 Checkout at release tag
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name || inputs.version || github.event.repository.default_branch }}
+          ref: ${{ github.event.release.tag_name || inputs.version }}
           fetch-depth: 0
 
       - name: 🏷️ Resolve version
         id: version
         run: |
           TAG="${{ github.event.release.tag_name || inputs.version }}"
-          # Scheduled runs carry no tag in the event: rebuild the newest release.
-          if [ -z "$TAG" ]; then
-            TAG="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
-            if [ -z "$TAG" ]; then
-              echo "No release tag found to build" >&2
-              exit 1
-            fi
-            git checkout --force "$TAG"
-          fi
-          echo "Building $TAG"
           VERSION="${TAG#v}"
           REPO_NAME="$(basename "$GITHUB_REPOSITORY")"
           ZIP_NAME="${REPO_NAME}-${VERSION}.zip"
@@ -83,7 +68,6 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: 📦 Create ZIP package
-        if: github.event_name != 'schedule'
         run: |
           # docs/, plans/ and node_modules/ are intentionally kept: the zip
           # doubles as a backup.
@@ -92,7 +76,6 @@ jobs:
                "CNAME" "Dockerfile" "README.md" "LICENSE"
 
       - name: 📤 Upload ZIP to GitHub Release
-        if: github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -100,7 +83,6 @@ jobs:
             "${{ steps.version.outputs.zip_name }}" --clobber
 
       - name: 📝 Update release with changed files
-        if: github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -203,7 +185,3 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             COMMIT=${{ steps.version.outputs.commit }}
           tags: ${{ steps.version.outputs.tags }}
-          # A scheduled rebuild must not reuse cached base-image or dependency
-          # layers: refreshing those is the whole point.
-          pull: true
-          no-cache: ${{ github.event_name == 'schedule' }}
