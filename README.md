@@ -357,7 +357,7 @@ Security-relevant behaviour in this release (see [`plans/2026-10-18-security-aud
 - **IMAP hygiene** — Mailbox names are validated and quoted, and the connection is always closed in a `finally` block.
 - **Database** — DSN built with `URL.create()` (passwords with `@:/` no longer corrupt or leak), optional TLS via `DB_SSL_CA`, pool pre-ping, and a loud warning when the default password is used.
 - **Container** — Runs as unprivileged uid 10001 with no build toolchain, `no-new-privileges`, all capabilities dropped, and a healthcheck.
-- **Supply chain** — `authlib` and `python-dotenv` removed (unused, vulnerable pins); all dependencies pinned to patched releases; `pip-audit` and the unit tests run in CI (`.github/workflows/security.yml`).
+- **Supply chain** — `authlib` and `python-dotenv` removed (unused, vulnerable pins); every dependency pinned to a patched release, with the security-critical transitives (`pillow` via Streamlit, `certifi` via `requests`) pinned explicitly in `requirements.txt` so they are audited; `pip-audit` checks both the pins and the **full resolved tree**, and the unit tests run in CI (`.github/workflows/security.yml`).
 
 > **Residual risk:** Streamlit does not expose server-side session cookies, so the OIDC `state` is verified through an HMAC-signed token rather than a browser-bound cookie, and the account-login lockout is per browser session (clearing the session cookie resets it). Login persistence uses a stateless cookie: it is not `HttpOnly` and there is no server-side revocation list, so a stolen cookie stays valid until it expires (`AUTH_SESSION_TTL_SECONDS`) — keep that value short and rotate `AUTH_STATE_SECRET` to invalidate every issued cookie at once. For internet-facing deployments, terminate authentication at an authenticating reverse proxy (oauth2-proxy, Traefik forward-auth, Authelia) with rate limiting, and keep `AUTH_METHOD=none` only inside the trusted network. The container serves plain HTTP on `8080`; publish it over HTTPS.
 
@@ -366,10 +366,19 @@ Run the security checks locally:
 ```bash
 python -m compileall -q app tests
 python -m unittest discover -s tests -v
-pip-audit -r requirements.txt --no-deps --strict
+pip-audit -r requirements.txt --no-deps --strict   # direct pins
+pip-audit -r requirements.txt --strict             # full tree, transitives included
 ```
 
 Please report vulnerabilities privately via the repository's Security tab rather than a public issue.
+
+### Keeping the Image Patched
+
+The image installs its Python dependencies at build time and runs no package manager afterwards, so the `certifi` CA bundle and every other library keep the version they were built with. A published image therefore cannot pick up a CA-bundle or library fix — including `certifi` rebuilds for revoked roots — without being rebuilt:
+
+- **Release builds** — `.github/workflows/build.yml` rebuilds and pushes `ghcr.io/ivancarlosti/dmarclyzer` whenever a release is published, so a `fix(deps): …` commit that bumps a pin ships with it.
+- **Monthly rebuild** — the same workflow also runs on a monthly schedule against the latest release tag with a pulled base image and no build cache, refreshing the base image and every transitive dependency even when no code changed.
+- **Consuming a rebuild** — a restart does not replace a cached image: run `docker compose pull && docker compose up -d` (or `docker pull` followed by `docker compose up -d --force-recreate`) to actually pick up the new layers.
 
 ---
 

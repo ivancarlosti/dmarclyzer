@@ -3,6 +3,11 @@ name: 🐳 Build Artifacts
 on:
   release:
     types: [published]
+  schedule:
+    # Monthly: rebuild the latest release so the published image picks up
+    # base-image and transitive-dependency fixes (certifi CA bundles, OS
+    # packages) even when no code changed.
+    - cron: "0 4 1 * *"
   workflow_dispatch:
     inputs:
       version:
@@ -20,16 +25,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout at release tag
+      - name: 📥 Checkout source (release tag / default branch)
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.version }}
+          ref: ${{ github.event.release.tag_name || inputs.version || github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: 🏷️ Resolve version
         id: version
         run: |
           TAG="${{ github.event.release.tag_name || inputs.version }}"
+          # Scheduled runs carry no tag in the event: rebuild the newest release.
+          if [ -z "$TAG" ]; then
+            TAG="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "No release tag found to build" >&2
+            exit 1
+          fi
+          echo "Building $TAG"
           VERSION="${TAG#v}"
           REPO_NAME="$(basename "$GITHUB_REPOSITORY")"
           ZIP_NAME="${REPO_NAME}-${VERSION}.zip"
@@ -41,13 +55,22 @@ jobs:
           echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
           echo "docker_repo=$DOCKER_REPO" >> "$GITHUB_OUTPUT"
 
+      - name: 🔀 Check out the resolved tag (scheduled rebuild)
+        id: tag_checkout
+        if: github.event_name == 'schedule'
+        run: |
+          git checkout --force "${{ steps.version.outputs.tag }}"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: 📦 Create ZIP package
+        if: github.event_name != 'schedule'
         run: |
           zip -r "${{ steps.version.outputs.zip_name }}" . \
             -x ".git/*" ".github/*" "docker/*" ".dockerignore" \
                "CNAME" "Dockerfile" "README.md" "LICENSE"
 
       - name: 📤 Upload ZIP to GitHub Release
+        if: github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -55,6 +78,7 @@ jobs:
             "${{ steps.version.outputs.zip_name }}" --clobber
 
       - name: 📝 Update release with changed files
+        if: github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -152,7 +176,11 @@ jobs:
           # /api/version, in Admin > About and in the startup log.
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
-            COMMIT=${{ github.sha }}
+            COMMIT=${{ steps.tag_checkout.outputs.commit || github.sha }}
+          # A scheduled rebuild must not reuse the cached dependency-install
+          # layer: that is the layer holding certifi and pillow.
+          pull: true
+          no-cache: ${{ github.event_name == 'schedule' }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ steps.version.outputs.docker_repo }}:latest
             ghcr.io/${{ github.repository_owner }}/${{ steps.version.outputs.docker_repo }}:${{ steps.version.outputs.version }}

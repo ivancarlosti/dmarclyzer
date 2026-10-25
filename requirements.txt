@@ -1,7 +1,15 @@
-streamlit==1.66.0
+# Direct runtime dependencies (pinned).
+streamlit==1.66.1
 pandas==2.2.3
 SQLAlchemy==2.0.55
 PyMySQL==1.2.3
 xmltodict==0.15.1
 requests==2.34.2
 plotly==5.24.1
+
+# Security-critical transitive dependencies, pinned explicitly so the
+# `pip-audit --no-deps` gate in CI audits them too:
+#   pillow  <- streamlit (GHSA-5x8w-8jj5-q52h et al., fixed in 13.0.0)
+#   certifi <- requests  (GHSA-6q48-6c7w-9gw2, fixed in 2026.10.19)
+pillow==13.0.0
+certifi==2026.10.23

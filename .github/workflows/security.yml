@@ -30,6 +30,12 @@ jobs:
       - name: Audit pinned dependencies
         run: pip-audit -r requirements.txt --no-deps --strict
 
+      - name: Audit resolved dependency tree
+        # --no-deps only sees the pins in requirements.txt. A transitive package
+        # (pillow via streamlit, certifi via requests) is invisible to it, which
+        # is how GHSA-5x8w-8jj5-q52h and GHSA-6q48-6c7w-9gw2 reached main.
+        run: pip-audit -r requirements.txt --strict
+
   unit-tests:
     name: Security unit tests
     runs-on: ubuntu-latest

@@ -14,6 +14,10 @@ WORKDIR /app
 RUN groupadd --gid 10001 app \
     && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 
+# Keep pip (and the certifi copy it vendors) current: the build is the only
+# place pip runs, and an old vendored CA bundle would still trust revoked CAs.
+RUN python -m pip install --no-cache-dir --upgrade "pip==26.2.1"
+
 # Install python dependencies early to cache them
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
