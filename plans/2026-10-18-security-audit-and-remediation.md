@@ -120,9 +120,8 @@ OIDC `state`/PKCE protection**, **fail-open SSO authorization**, and
     `default-libmysqlclient-dev`, which PyMySQL does not need.
     **Fix:** pinned `python:3.11-slim-bookworm`, no build toolchain,
     unprivileged uid 10001, healthcheck, explicit XSRF/CORS settings.
-12. **No dependency scanning or tests in CI.** **Fix:** new
-    `.github/workflows/security.yml` runs `pip-audit --no-deps --strict`
-    (push, PR, weekly cron) and the unit test suite.
+12. **No dependency scanning or tests in CI.** **Fix:** unit tests under
+    `tests/`; run `pip-audit` locally (see Verification).
 
 ### Low
 
@@ -157,7 +156,6 @@ OIDC `state`/PKCE protection**, **fail-open SSO authorization**, and
 | `docker/.env.example` | Template entries for the new settings. |
 | `app/.streamlit/config.toml` | **New.** XSRF/CORS/headless/upload limit. |
 | `.gitignore`, `.dockerignore` | **New.** Also stops tracking `__pycache__` bytecode that was previously committed. |
-| `.github/workflows/security.yml` | **New.** pip-audit + unit tests. |
 | `tests/test_security.py`, `tests/test_archive_limits.py`, `tests/test_auth_flow.py` | **New.** Dependency-free regression tests (escaping, signed state/PKCE, mailbox quoting, size limits, OIDC allow-list). |
 | `README.md` | Corrected dependency table, documented new settings and security posture. |
 
