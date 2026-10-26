@@ -517,12 +517,19 @@ class ClientIpTests(unittest.TestCase):
         )
 
     def test_invalid_proxy_entry_is_ignored(self):
-        self.assertEqual(
-            login_lockout.resolve_client_ip(
-                "10.0.0.5", "8.8.8.8", "not-a-cidr, 10.0.0.0/99, 10.0.0.0/8"
-            ),
-            "8.8.8.8",
-        )
+        raw = "not-a-cidr, 10.0.0.0/99, 10.0.0.0/8"
+        with self.assertLogs("login_lockout", level="WARNING") as captured:
+            resolved = login_lockout.resolve_client_ip(
+                "10.0.0.5", "8.8.8.8", raw
+            )
+        self.assertEqual(resolved, "8.8.8.8")
+        text = "\n".join(captured.output)
+        self.assertNotIn("not-a-cidr", text)
+        self.assertNotIn("10.0.0.0/99", text)
+        self.assertNotIn("10.0.0.0/8", text)
+        self.assertIn("position 1", text)
+        self.assertIn("position 2", text)
+        self.assertNotIn("position 3", text)
 
     def test_bracketed_ipv6_and_ipv4_port_are_parsed(self):
         self.assertEqual(

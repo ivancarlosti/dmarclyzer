@@ -162,7 +162,7 @@ def _trusted_networks(raw: str | None) -> tuple:
     if not isinstance(raw, str) or not raw.strip():
         return ()
     networks = []
-    for item in raw.split(","):
+    for index, item in enumerate(raw.split(","), start=1):
         item = item.strip()
         if not item:
             continue
@@ -175,8 +175,11 @@ def _trusted_networks(raw: str | None) -> tuple:
                     ipaddress.ip_network(f"{addr}/{addr.max_prefixlen}", strict=False)
                 )
         except ValueError:
+            # The entry itself is configuration and may be an address. Log
+            # where it sat in the list, never its contents.
             logger.warning(
-                "Ignoring invalid LOGIN_TRUSTED_PROXIES entry %r.", item[:64]
+                "Ignoring invalid LOGIN_TRUSTED_PROXIES entry at position %s.",
+                index,
             )
     return tuple(networks)
 

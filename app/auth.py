@@ -644,9 +644,9 @@ def _store_call(method: str, *args):
     try:
         return getattr(_attempt_store(), method)(*args)
     except Exception as exc:
-        logger.error(
-            "Login lockout store failed (%s).", type(exc).__name__, exc_info=True
-        )
+        # Exception text from the database driver includes the row values
+        # (username or client IP). Keep the log to the exception type.
+        logger.error("Login lockout store failed (%s).", type(exc).__name__)
         raise _LockoutStoreError from exc
 
 
