@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     DateTime,
     Float,
@@ -73,6 +74,29 @@ class AuthResult(Base):
     domain = Column(String(255))
     result = Column(String(20))
     selector = Column(String(255))
+
+
+class LoginAttempt(Base):
+    """Failed account-login counter, keyed by username or client IP.
+
+    ``window_started`` and ``locked_until`` are unix timestamps in seconds.
+    ``init_db()`` creates the table (``create_all``) on databases that
+    predate it; no separate migration step is required.
+    """
+
+    __tablename__ = "login_attempts"
+    id = Column(Integer, primary_key=True)
+    subject_kind = Column(String(16), nullable=False)
+    subject = Column(String(255), nullable=False)
+    failures = Column(Integer, nullable=False)
+    window_started = Column(BigInteger, nullable=False)
+    locked_until = Column(BigInteger, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_kind", "subject", name="uq_login_attempts_subject"
+        ),
+    )
 
 
 @lru_cache(maxsize=1)

@@ -72,7 +72,7 @@ Three auth modes configurable via environment variable:
 | Mode | Description |
 |------|-------------|
 | `none` | No authentication (default, open access — log a warning at startup) |
-| `account` | Username/password login, constant-time comparison, per-session lockout, optional server-verified reCAPTCHA |
+| `account` | Username/password login, constant-time comparison, server-side lockout, optional server-verified reCAPTCHA |
 | `keycloak` | OpenID Connect authorization-code flow with PKCE, signed `state`, and a required email allow-list |
 
 Sign-ins survive browser refreshes through a signed, expiring cookie (`AUTH_SESSION_TTL_SECONDS`, default 8 hours); signing out expires it.
@@ -273,7 +273,9 @@ On first launch, the dashboard will auto-refresh up to 3 times while waiting for
 | `AUTH_METHOD` | No | `none` | `none`, `account`, or `keycloak` |
 | `ACCOUNT_LOGIN` | `account` | — | Username for `account` auth |
 | `ACCOUNT_PASSWORD` | `account` | — | Password for `account` auth |
-| `LOGIN_MAX_ATTEMPTS` | No | `5` | Failed logins per browser session before lockout |
+| `LOGIN_MAX_ATTEMPTS` | No | `5` | Failed logins for one username (and client IP, when known) before lockout |
+| `LOGIN_LOCKOUT_SECONDS` | No | `900` | How long those failures are remembered and how long the lock lasts (1–604800) |
+| `LOGIN_TRUSTED_PROXIES` | No | — | Comma-separated proxy IPs/CIDRs allowed to supply the client address. Empty ignores `X-Forwarded-For` / `X-Real-IP` |
 | `RECAPTCHA_CLIENTID` | No | — | reCAPTCHA site key; when set, a token input is shown |
 | `RECAPTCHA_CLIENTSECRET` | No | — | reCAPTCHA secret; when set, tokens are **verified server-side** and login fails closed without one |
 | `KEYCLOAK_BASE_URL` | `keycloak` | — | Keycloak base URL (must be `https://` unless `ALLOW_INSECURE_IDP=true`) |
@@ -303,7 +305,9 @@ AUTH_METHOD=account
 ACCOUNT_LOGIN=admin
 ACCOUNT_PASSWORD=your_secure_password
 ```
-Both variables must be set; otherwise sign-in is refused. Credentials are compared in constant time, and after `LOGIN_MAX_ATTEMPTS` failures (default 5) the browser session is locked until it is restarted. Add reCAPTCHA by setting `RECAPTCHA_CLIENTID` and `RECAPTCHA_CLIENTSECRET` — when the secret is present, a token is required and verified server-side.
+Both variables must be set; otherwise sign-in is refused. Credentials are compared in constant time. After `LOGIN_MAX_ATTEMPTS` failures (default 5) within `LOGIN_LOCKOUT_SECONDS` (default 15 minutes) the username is locked for that same window. The counters are rows in MariaDB, so a reload or a new browser session does not reset them; a successful sign-in does. An unknown username is counted and rejected the same way as the real one. Add reCAPTCHA by setting `RECAPTCHA_CLIENTID` and `RECAPTCHA_CLIENTSECRET` — when the secret is present, a token is required and verified server-side, and a failed check does not change the counter.
+
+The client IP is counted as well when it can be known safely. `st.context.ip_address` is the TCP peer. A globally routable peer is used as-is. A private peer (the usual case behind a reverse proxy) is not, because one proxy address would lock every user, and `X-Forwarded-For` is ignored unless that peer is listed in `LOGIN_TRUSTED_PROXIES`. When it is, the client is the rightmost forwarded address that is not itself a trusted proxy (`X-Real-IP` is the fallback).
 
 ### Keycloak (SSO)
 ```env
@@ -359,7 +363,7 @@ Security-relevant behaviour in this release (see [`plans/2026-10-18-security-aud
 - **Container** — Runs as unprivileged uid 10001 with no build toolchain, `no-new-privileges`, all capabilities dropped, and a healthcheck.
 - **Supply chain** — `authlib` and `python-dotenv` removed (unused, vulnerable pins); every dependency pinned to a patched release, with the security-critical transitives (`pillow` via Streamlit, `certifi` via `requests`) pinned explicitly in `requirements.txt` so they are audited; `pip-audit` checks both the pins and the **full resolved tree**.
 
-> **Residual risk:** Streamlit does not expose server-side session cookies, so the OIDC `state` is verified through an HMAC-signed token rather than a browser-bound cookie, and the account-login lockout is per browser session (clearing the session cookie resets it). Login persistence uses a stateless cookie: it is not `HttpOnly` and there is no server-side revocation list, so a stolen cookie stays valid until it expires (`AUTH_SESSION_TTL_SECONDS`) — keep that value short and rotate `AUTH_STATE_SECRET` to invalidate every issued cookie at once. For internet-facing deployments, terminate authentication at an authenticating reverse proxy (oauth2-proxy, Traefik forward-auth, Authelia) with rate limiting, and keep `AUTH_METHOD=none` only inside the trusted network. The container serves plain HTTP on `8080`; publish it over HTTPS.
+> **Residual risk:** Streamlit does not expose server-side session cookies, so the OIDC `state` is verified through an HMAC-signed token rather than a browser-bound cookie. Account-login lockout is stored in MariaDB and survives a reload or a new browser session. Internet-facing deployments should still rate-limit at the reverse proxy. Login persistence uses a stateless cookie: it is not `HttpOnly` and there is no server-side revocation list, so a stolen cookie stays valid until it expires (`AUTH_SESSION_TTL_SECONDS`) — keep that value short and rotate `AUTH_STATE_SECRET` to invalidate every issued cookie at once. For internet-facing deployments, terminate authentication at an authenticating reverse proxy (oauth2-proxy, Traefik forward-auth, Authelia) with rate limiting, and keep `AUTH_METHOD=none` only inside the trusted network. The container serves plain HTTP on `8080`; publish it over HTTPS.
 
 Run the security checks locally:
 

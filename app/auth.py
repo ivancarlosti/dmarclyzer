@@ -12,12 +12,14 @@ import json
 import logging
 import os
 import secrets
+import time
 import urllib.parse
 from typing import NamedTuple
 
 import requests
 import streamlit as st
 
+import login_lockout
 from security import (
     SESSION_TTL_SECONDS_DEFAULT,
     SESSION_TTL_SECONDS_MAX,
@@ -45,8 +47,19 @@ AUTHENTICATED_KEY = "authenticated"
 EMAIL_SESSION_KEY = "auth_email"
 ID_TOKEN_SESSION_KEY = "auth_id_token"
 STATE_SESSION_KEY = "_oidc_state"
+# Cleared on logout for sessions that predate server-side lockout. The
+# counters that actually enforce lockout live in the database, not here.
 ATTEMPTS_SESSION_KEY = "_login_attempts"
 LOCKED_SESSION_KEY = "_login_locked"
+
+INVALID_CREDENTIALS_MESSAGE = "Invalid credentials."
+LOCKOUT_MESSAGE = "Too many failed sign-in attempts. Try again later."
+LOCKOUT_UNAVAILABLE_MESSAGE = (
+    "Sign-in is temporarily unavailable. Please try again."
+)
+
+# Replaced in tests. Production builds a DatabaseAttemptStore on first use.
+_login_attempt_store = None
 
 # Signed browser-session cookie. Streamlit drops ``session_state`` whenever the
 # page is fully reloaded, so the identity is also kept in a cookie that is
@@ -597,6 +610,106 @@ def _verify_recaptcha(secret: str) -> bool:
     return success
 
 
+class _LockoutStoreError(Exception):
+    """The lockout store could not be read or updated. Login fails closed."""
+
+
+def _lockout_limits() -> tuple[int, int]:
+    """Return ``(max_attempts, lockout_window_seconds)`` from the environment."""
+    max_attempts = env_int("LOGIN_MAX_ATTEMPTS", 5, minimum=1, maximum=100)
+    window = env_int(
+        "LOGIN_LOCKOUT_SECONDS",
+        login_lockout.DEFAULT_LOCKOUT_SECONDS,
+        minimum=1,
+        maximum=login_lockout.MAX_LOCKOUT_SECONDS,
+    )
+    return max_attempts, window
+
+
+def _now() -> int:
+    """Unix time in seconds. Tests replace this to move the lockout window."""
+    return int(time.time())
+
+
+def _attempt_store():
+    """Return the process-wide lockout store, creating the database one once."""
+    global _login_attempt_store
+    if _login_attempt_store is None:
+        _login_attempt_store = login_lockout.DatabaseAttemptStore()
+    return _login_attempt_store
+
+
+def _store_call(method: str, *args):
+    """Call a store method. Any failure becomes :class:`_LockoutStoreError`."""
+    try:
+        return getattr(_attempt_store(), method)(*args)
+    except Exception as exc:
+        logger.error(
+            "Login lockout store failed (%s).", type(exc).__name__, exc_info=True
+        )
+        raise _LockoutStoreError from exc
+
+
+def _header_value(headers, name: str) -> str | None:
+    """Read one request header, tolerating dicts and Streamlit's header map."""
+    if headers is None:
+        return None
+    titled = "-".join(part.capitalize() for part in name.split("-"))
+    for candidate in (name, name.lower(), titled):
+        value = None
+        try:
+            value = headers[candidate]
+        except Exception:
+            getter = getattr(headers, "get", None)
+            if getter is not None:
+                try:
+                    value = getter(candidate)
+                except Exception:
+                    value = None
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _login_client_ip() -> str | None:
+    """Return the client IP used for lockout, or None when it is not reliable.
+
+    The TCP peer comes from ``st.context.ip_address``. Forwarded headers are
+    consulted only when that peer is listed in ``LOGIN_TRUSTED_PROXIES``.
+    """
+    try:
+        context = st.context
+    except Exception:
+        logger.debug(
+            "Unable to read request context for login lockout.", exc_info=True
+        )
+        return None
+    peer = getattr(context, "ip_address", None)
+    if not isinstance(peer, str):
+        peer = None
+    try:
+        headers = context.headers
+    except Exception:
+        logger.debug(
+            "Unable to read request headers for login lockout.", exc_info=True
+        )
+        headers = None
+    try:
+        return login_lockout.resolve_client_ip(
+            peer,
+            _header_value(headers, "x-forwarded-for"),
+            _env("LOGIN_TRUSTED_PROXIES"),
+            real_ip=_header_value(headers, "x-real-ip"),
+        )
+    except Exception:
+        logger.debug(
+            "Unable to determine a client IP for login lockout.", exc_info=True
+        )
+        return None
+
+
 def _render_account_login():
     configured_login = _env("ACCOUNT_LOGIN")
     configured_password = _env("ACCOUNT_PASSWORD")
@@ -607,11 +720,20 @@ def _render_account_login():
         st.error("Account sign-in is enabled but not configured. Access denied.")
         return False
 
-    max_attempts = env_int("LOGIN_MAX_ATTEMPTS", 5, minimum=1, maximum=100)
-    if st.session_state.get(LOCKED_SESSION_KEY):
-        st.error(
-            "Too many failed sign-in attempts. Restart your browser session and try again."
-        )
+    max_attempts, window = _lockout_limits()
+    now = _now()
+    client_ip = _login_client_ip()
+
+    # An address we already know is locked never sees the form. The username
+    # is not known until submit, so that half of the check happens below.
+    try:
+        if client_ip and _store_call(
+            "lock_expiry", login_lockout.SUBJECT_IP, client_ip, now
+        ):
+            st.error(LOCKOUT_MESSAGE)
+            return False
+    except _LockoutStoreError:
+        st.error(LOCKOUT_UNAVAILABLE_MESSAGE)
         return False
 
     site_key = _env("RECAPTCHA_CLIENTID")
@@ -631,37 +753,93 @@ def _render_account_login():
 
             if submitted:
                 # Evaluate both comparisons so timing does not reveal which
-                # half of the credential pair was wrong.
+                # half of the credential pair was wrong. The lockout key is the
+                # submitted name, not the configured one, so an unknown name
+                # locks on the same schedule and the message stays the same.
                 username_ok = constant_time_equals(username, configured_login)
                 password_ok = constant_time_equals(password, configured_password)
+                subject = login_lockout.username_subject(username)
+                try:
+                    user_locked = _store_call(
+                        "lock_expiry", login_lockout.SUBJECT_USER, subject, now
+                    )
+                    ip_locked = bool(client_ip) and bool(
+                        _store_call(
+                            "lock_expiry", login_lockout.SUBJECT_IP, client_ip, now
+                        )
+                    )
+                except _LockoutStoreError:
+                    st.error(LOCKOUT_UNAVAILABLE_MESSAGE)
+                    return False
+
+                if user_locked or ip_locked:
+                    st.error(LOCKOUT_MESSAGE)
+                    return False
 
                 if username_ok and password_ok:
                     if captcha_secret and not _verify_recaptcha(captcha_secret):
                         st.error("reCAPTCHA verification failed. Please try again.")
                         return False
+                    try:
+                        _store_call("clear", login_lockout.SUBJECT_USER, subject)
+                        if client_ip:
+                            _store_call(
+                                "clear", login_lockout.SUBJECT_IP, client_ip
+                            )
+                    except _LockoutStoreError:
+                        # The credentials were accepted and the subject was
+                        # not locked. Losing the reset must not trap the user
+                        # out of an account they just authenticated to.
+                        logger.error(
+                            "Login succeeded but the failure counter could not be cleared."
+                        )
                     st.session_state[AUTHENTICATED_KEY] = True
                     # There is no OIDC email in account mode; the username is the
                     # persisted identity (used by the session cookie and the
                     # "Signed in as" caption).
                     st.session_state[EMAIL_SESSION_KEY] = configured_login
-                    st.session_state[ATTEMPTS_SESSION_KEY] = 0
+                    st.session_state.pop(ATTEMPTS_SESSION_KEY, None)
+                    st.session_state.pop(LOCKED_SESSION_KEY, None)
                     st.rerun()
                 else:
-                    attempts = int(st.session_state.get(ATTEMPTS_SESSION_KEY, 0)) + 1
-                    st.session_state[ATTEMPTS_SESSION_KEY] = attempts
-                    if attempts >= max_attempts:
-                        st.session_state[LOCKED_SESSION_KEY] = True
+                    try:
+                        user_attempt = _store_call(
+                            "record_failure",
+                            login_lockout.SUBJECT_USER,
+                            subject,
+                            now,
+                            max_attempts,
+                            window,
+                        )
+                        ip_attempt = None
+                        if client_ip:
+                            ip_attempt = _store_call(
+                                "record_failure",
+                                login_lockout.SUBJECT_IP,
+                                client_ip,
+                                now,
+                                max_attempts,
+                                window,
+                            )
+                    except _LockoutStoreError:
+                        st.error(LOCKOUT_UNAVAILABLE_MESSAGE)
+                        return False
+                    locked = user_attempt.locked_until is not None or (
+                        ip_attempt is not None and ip_attempt.locked_until is not None
+                    )
+                    if locked:
                         logger.warning(
-                            "Account login locked after %s failed attempts.", attempts
+                            "Account login locked after %s failed attempts.",
+                            max_attempts,
                         )
-                        st.error(
-                            "Too many failed sign-in attempts. Restart your browser session to try again."
-                        )
+                        st.error(LOCKOUT_MESSAGE)
                     else:
                         logger.warning(
-                            "Failed account login attempt (%s/%s).", attempts, max_attempts
+                            "Failed account login attempt (%s/%s).",
+                            user_attempt.failures,
+                            max_attempts,
                         )
-                        st.error("Invalid credentials.")
+                        st.error(INVALID_CREDENTIALS_MESSAGE)
     return False
 
 
